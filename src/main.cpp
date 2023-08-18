@@ -46,7 +46,7 @@ void setup() {
 
 	// Load the sample FFT model
 	Serial.println("Loading Tensorflow model....");
-	FFT_model = tflite::GetModel(g_FFT_model_data);
+	FFT_model = tflite::GetModel(FFT_model_quantized_tflite);
 	Serial.println("FFT model loaded!");
 
 	// Define ops resolver and error reporting
@@ -79,13 +79,14 @@ void setup() {
 	Serial.println("Starting inferences... Input a number! ");
 }
 
-// Wait for 2 serial inputs to be made available and parse them as floats
-float user_input[2];
+// Wait for 5 serial inputs to be made available and parse them as floats
+float user_input[5];
+#define INPUT_SIZE 5
 
 // Logic loop for taking user input and outputting the FFT
 void loop() { 
 	// Wait for serial input to be made available and parse it as a float
-	for (int i = 0; i < 2; i++) {
+	for (int i = 0; i < INPUT_SIZE; i++) {
 		while (Serial.available() == 0) {
 			// Wait for serial input to be made available
 			delay(10);
@@ -97,18 +98,10 @@ void loop() {
 		Serial.flush();
 	}
 
-	/* The sample model is only trained for values between 0 and 50
-	* This will keep the user from inputting bad numbers. 
-	*/
-	if (user_input[0] < 1 || user_input[0] > 50 ||
-		user_input[1] < 1 || user_input[1] > 50) {
-		Serial.println("Your numbers must be greater than 0 and less than 50");
-		return;
-	}
-
 	// Set the input node to the user input
-	input->data.f[0] = user_input[0];
-	input->data.f[1] = user_input[1];
+	for (int i = 0; i < INPUT_SIZE; i++) {
+		input->data.f[i] = user_input[i];
+	}
 
 	Serial.println("Running inference on inputted data...");
 
@@ -119,8 +112,10 @@ void loop() {
 	}
 
 	// Print the output of the model.
-	Serial.print("Output: ");
+	Serial.print("Output 1: ");
 	Serial.println(output->data.f[0]);
+	Serial.print("Output 2: ");
+	Serial.println(output->data.f[1]);
+	Serial.println("Input another 5 numbers!");
 	Serial.println("");
-	Serial.println("Input another 2 numbers!");
 } 
