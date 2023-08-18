@@ -22,14 +22,14 @@ limitations under the License.
 #include "tensorflow/lite/experimental/micro/kernels/all_ops_resolver.h"
 #include "tensorflow/lite/experimental/micro/micro_error_reporter.h"
 #include "tensorflow/lite/experimental/micro/micro_interpreter.h"
-#include "sine_model_data.h"
+#include "multi_model_data.h"
 
 // Create a memory pool for the nodes in the network
 constexpr int tensor_pool_size = 2 * 1024;
 uint8_t tensor_pool[tensor_pool_size];
 
 // Define the model to be used
-const tflite::Model* sine_model;
+const tflite::Model* multi_model;
 
 // Define the interpreter
 tflite::MicroInterpreter* interpreter;
@@ -43,10 +43,10 @@ void setup() {
 	// Start serial at 115200 baud
 	Serial.begin(115200);
 
-	// Load the sample sine model
+	// Load the sample multi model
 	Serial.println("Loading Tensorflow model....");
-	sine_model = tflite::GetModel(g_sine_model_data);
-	Serial.println("Sine model loaded!");
+	multi_model = tflite::GetModel(g_multi_model_data);
+	Serial.println("multi model loaded!");
 
 	// Define ops resolver and error reporting
 	static tflite::ops::micro::AllOpsResolver resolver;
@@ -57,7 +57,7 @@ void setup() {
 
 	// Instantiate the interpreter 
 	static tflite::MicroInterpreter static_interpreter(
-		sine_model, resolver, tensor_pool, tensor_pool_size, error_reporter
+		multi_model, resolver, tensor_pool, tensor_pool_size, error_reporter
 	);
 
 	interpreter = &static_interpreter;
@@ -72,40 +72,52 @@ void setup() {
 	// Define input and output nodes
 	input = interpreter->input(0);
 	output = interpreter->output(0);
+
 	Serial.println("Starting inferences... Input a number! ");
 }
 
-// Logic loop for taking user input and outputting the sine
+// Wait for 2 serial inputs to be made available and parse them as floats
+float user_input[2];
+
+// Logic loop for taking user input and outputting the multi
 void loop() { 
 	// Wait for serial input to be made available and parse it as a float
-	if(Serial.available() > 0) {
-    	float user_input = Serial.parseFloat();
-
-    	/* The sample model is only trained for values between 0 and 2*PI
-    	 * This will keep the user from inputting bad numbers. 
-    	 */
-		if(user_input < 0.0f || user_input > (float)(2*M_PI)) {
-			Serial.println("Your number must be greater than 0 and less than 2*PI");
-			return;
+	for (int i = 0; i < 2; i++) {
+		while (Serial.available() == 0) {
+			// Wait for serial input to be made available
+			delay(10);
 		}
-    	
-    	// Set the input node to the user input
-    	input->data.f[0] = user_input;
+		char buffer[10];
+		Serial.readBytesUntil('\n', buffer, 10);
+		user_input[i] = atof(buffer);
+		Serial.printf("Input %d: %f\n", i, user_input[i]);
+		Serial.flush();
+	}
 
-    	Serial.println("Running inference on inputted data...");
+	/* The sample model is only trained for values between 0 and 50
+	* This will keep the user from inputting bad numbers. 
+	*/
+	if (user_input[0] < 1 || user_input[0] > 50 ||
+		user_input[1] < 1 || user_input[1] > 50) {
+		Serial.println("Your numbers must be greater than 0 and less than 50");
+		return;
+	}
 
-    	// Run inference on the input data
-    	if(interpreter->Invoke() != kTfLiteOk) {
-    		Serial.println("There was an error invoking the interpreter!");
-    		return;
-    	}
+	// Set the input node to the user input
+	input->data.f[0] = user_input[0];
+	input->data.f[1] = user_input[1];
 
-    	// Print the output of the model.
-    	Serial.print("Input: ");
-    	Serial.println(user_input);
-    	Serial.print("Output: ");
-    	Serial.println(output->data.f[0]);
-    	Serial.println("");
+	Serial.println("Running inference on inputted data...");
 
-    }
+	// Run inference on the input data
+	if(interpreter->Invoke() != kTfLiteOk) {
+		Serial.println("There was an error invoking the interpreter!");
+		return;
+	}
+
+	// Print the output of the model.
+	Serial.print("Output: ");
+	Serial.println(output->data.f[0]);
+	Serial.println("");
+	Serial.println("Input another 2 numbers!");
 } 
