@@ -17,19 +17,20 @@ See the License for the specific language governing permissions and
 limitations under the License.
 ==============================================================================*/
 
+#include "tensorflow/lite/micro/all_ops_resolver.h"
+#include "tensorflow/lite/micro/micro_error_reporter.h"
+#include "tensorflow/lite/micro/micro_interpreter.h"
+#include "tensorflow/lite/schema/schema_generated.h"
+#include "tensorflow/lite/version.h"
+#include "FFT_model_data.h"
 #include <Arduino.h>
-#include <math.h>
-#include "tensorflow/lite/experimental/micro/kernels/all_ops_resolver.h"
-#include "tensorflow/lite/experimental/micro/micro_error_reporter.h"
-#include "tensorflow/lite/experimental/micro/micro_interpreter.h"
-#include "multi_model_data.h"
 
 // Create a memory pool for the nodes in the network
 constexpr int tensor_pool_size = 2 * 1024;
-uint8_t tensor_pool[tensor_pool_size];
+alignas(16) uint8_t tensor_pool[tensor_pool_size];
 
 // Define the model to be used
-const tflite::Model* multi_model;
+const tflite::Model* FFT_model;
 
 // Define the interpreter
 tflite::MicroInterpreter* interpreter;
@@ -43,13 +44,13 @@ void setup() {
 	// Start serial at 115200 baud
 	Serial.begin(115200);
 
-	// Load the sample multi model
+	// Load the sample FFT model
 	Serial.println("Loading Tensorflow model....");
-	multi_model = tflite::GetModel(g_multi_model_data);
-	Serial.println("multi model loaded!");
+	FFT_model = tflite::GetModel(g_FFT_model_data);
+	Serial.println("FFT model loaded!");
 
 	// Define ops resolver and error reporting
-	static tflite::ops::micro::AllOpsResolver resolver;
+	static tflite::AllOpsResolver resolver;
 
 	static tflite::ErrorReporter* error_reporter;
 	static tflite::MicroErrorReporter micro_error;
@@ -57,7 +58,7 @@ void setup() {
 
 	// Instantiate the interpreter 
 	static tflite::MicroInterpreter static_interpreter(
-		multi_model, resolver, tensor_pool, tensor_pool_size, error_reporter
+		FFT_model, resolver, tensor_pool, tensor_pool_size, error_reporter
 	);
 
 	interpreter = &static_interpreter;
@@ -65,6 +66,8 @@ void setup() {
 	// Allocate the the model's tensors in the memory pool that was created.
 	Serial.println("Allocating tensors to memory pool");
 	if(interpreter->AllocateTensors() != kTfLiteOk) {
+		Serial.printf("Model provided is schema version %d not equal to supported version %d.\n",
+                             FFT_model->version(), TFLITE_SCHEMA_VERSION);
 		Serial.println("There was an error allocating the memory...ooof");
 		return;
 	}
@@ -79,7 +82,7 @@ void setup() {
 // Wait for 2 serial inputs to be made available and parse them as floats
 float user_input[2];
 
-// Logic loop for taking user input and outputting the multi
+// Logic loop for taking user input and outputting the FFT
 void loop() { 
 	// Wait for serial input to be made available and parse it as a float
 	for (int i = 0; i < 2; i++) {
