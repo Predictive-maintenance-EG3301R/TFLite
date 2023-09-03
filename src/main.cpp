@@ -21,7 +21,6 @@ limitations under the License.
 #include "tensorflow/lite/micro/micro_error_reporter.h"
 #include "tensorflow/lite/micro/micro_interpreter.h"
 #include "tensorflow/lite/schema/schema_generated.h"
-#include "tensorflow/lite/version.h"
 #include "FFT_model_data.h"
 #include "AR_model.h"
 #include <Arduino.h>
@@ -31,7 +30,7 @@ limitations under the License.
 constexpr int FFT_tensor_pool_size = 2 * 1024;
 alignas(16) uint8_t FFT_tensor_pool[FFT_tensor_pool_size];
 
-constexpr int AR_tensor_pool_size = 3 * 1024;
+constexpr int AR_tensor_pool_size = 10 * 1024;
 alignas(16) uint8_t AR_tensor_pool[AR_tensor_pool_size];
 
 // Define the model to be used
