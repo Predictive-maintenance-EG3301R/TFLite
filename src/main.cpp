@@ -21,7 +21,6 @@ limitations under the License.
 #include "tensorflow/lite/micro/micro_error_reporter.h"
 #include "tensorflow/lite/micro/micro_interpreter.h"
 #include "tensorflow/lite/schema/schema_generated.h"
-#include "tensorflow/lite/version.h"
 #include "FFT_model_data.h"
 // #include "AR_model.h"
 #include <Arduino.h>
@@ -189,6 +188,7 @@ void loop() {
 	// Call ready() repeatedly in loop for authentication checking and processing
     bool ready = GSheet.ready();
 
+	// bool ready = 1;
 	if (ready) {
         FirebaseJson response;
         FirebaseJsonData data;
@@ -217,7 +217,7 @@ void loop() {
         response.get(data, "values/[0]");
         data.get<FirebaseJsonArray>(dataArr);
 
-        for (size_t i = 0; i < dataArr.size(); i++) {
+        for (int i = 0; i < dataArr.size(); i++) {
             dataArr.get(data, i);
 
             //Print its value
@@ -227,7 +227,10 @@ void loop() {
             Serial.print(data.type);
             Serial.print(", value: ");
             Serial.println(data.to<String>());
-			user_input[i] = data.to<String>().toFloat();
+
+			if (i < INPUT_SIZE) {
+				user_input[i] = data.to<String>().toFloat();
+			}
         }
 
 		// To check if user input is set correctly
@@ -239,8 +242,11 @@ void loop() {
         Serial.println();
         Serial.println("---------------------------------------------------------------");
     }
+	
+	Serial.print("Free heap: ");
+	Serial.println(ESP.getFreeHeap());
 
-	// // Wait for serial input to be made available and parse it as a float ----- Portion below is for mauual input
+	// Wait for serial input to be made available and parse it as a float ----- Portion below is for mauual input
 	// for (int i = 0; i < INPUT_SIZE; i++) {
 	// 	while (Serial.available() == 0) {
 	// 		// Wait for serial input to be made available
@@ -254,7 +260,7 @@ void loop() {
 	// }
 
 	// Set the input node to the user input
-	for (int i = 0; i < 4; i++) {
+	for (int i = 0; i < INPUT_SIZE; i++) {
 		FFT_input->data.f[i] = user_input[i];
 	}
 
@@ -274,6 +280,13 @@ void loop() {
 	Serial.print("Output 2: ");
 	Serial.println(FFT_output->data.f[1]);
 
+	int predicted;
+	if (FFT_output->data.f[0] > FFT_output->data.f[1]) {
+		predicted = 0;
+	} else {
+		predicted = 1;
+	}
+
 	// For sending result to Google sheets
 	if (ready) {
 		FirebaseJson toUpdate;
@@ -287,7 +300,7 @@ void loop() {
 
 		toUpdate.add("range", updateCol);
 		toUpdate.add("majorDimension", "ROWS");
-		toUpdate.set("values/[0]/[0]", rowNumber);
+		toUpdate.set("values/[0]/[0]", predicted);
 
 		bool success0 = GSheet.values.update(&updateResponse /* returned response */, SPREADSHEET_ID /* spreadsheet Id to update */, updateRange /* range to update */, &toUpdate /* data to update */);
 		updateResponse.toString(Serial, true);
@@ -296,5 +309,7 @@ void loop() {
 		Serial.print("Free heap: ");
 		Serial.println(ESP.getFreeHeap());
 	}
-	
-} 
+
+	Serial.println("Waiting 1 seconds before next inference...");
+	delay(1000);
+}
