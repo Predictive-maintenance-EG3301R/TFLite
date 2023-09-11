@@ -22,7 +22,7 @@ limitations under the License.
 #include "tensorflow/lite/micro/micro_interpreter.h"
 #include "tensorflow/lite/schema/schema_generated.h"
 #include "FFT_model_data.h"
-// #include "AR_model.h"
+#include "AR_model.h"
 #include <Arduino.h>
 #include <WiFi.h>
 #include <ESP_Google_Sheet_Client.h>
@@ -35,29 +35,31 @@ void tokenStatusCallback(TokenInfo info);
 constexpr int FFT_tensor_pool_size = 2 * 1024;
 alignas(16) uint8_t FFT_tensor_pool[FFT_tensor_pool_size];
 
-// constexpr int AR_tensor_pool_size = 10 * 1024;
-// alignas(16) uint8_t AR_tensor_pool[AR_tensor_pool_size];
+constexpr int AR_tensor_pool_size = 10 * 1024;
+alignas(16) uint8_t AR_tensor_pool[AR_tensor_pool_size];
 
 // Define the model to be used
 const tflite::Model* FFT_model;
-// const tflite::Model* AR_model;
+const tflite::Model* AR_model;
 
 // Define the interpreter
 tflite::MicroInterpreter* FFT_interpreter;
-// tflite::MicroInterpreter* AR_interpreter;
+tflite::MicroInterpreter* AR_interpreter;
 
 // To load data to test FFT model
 #define INPUT_SIZE 5
 float user_input[INPUT_SIZE];
 
 // For editing Google sheets
-volatile unsigned long rowNumber = 0;
+volatile unsigned long rowNumber = 6000;
+int lastRow = 8576;
+int numConnection = 0;
 
 // Input/Output nodes for the network
 TfLiteTensor* FFT_input;
 TfLiteTensor* FFT_output;
-// TfLiteTensor* AR_input;
-// TfLiteTensor* AR_output;
+TfLiteTensor* AR_input;
+TfLiteTensor* AR_output;
 
 // For Google sheets debugging
 void tokenStatusCallback(TokenInfo info) {
@@ -78,6 +80,9 @@ void tokenStatusCallback(TokenInfo info) {
 void setup() { 
 	// Start serial at 115200 baud
 	Serial.begin(115200);
+
+	// Use to easily indicate if WiFi is connected
+	pinMode(LED_BUILTIN, OUTPUT);
 
 	// ********************** Loading of FFT Model ************************
 	// Load the FFT model
@@ -116,40 +121,40 @@ void setup() {
 
 	// ********************** Loading of AR Model ************************
 	// Load the AR model
-	// Serial.println("Loading Tensorflow model....");
-	// AR_model = tflite::GetModel(AR_model_fullint_quantized_tflite);
-	// Serial.println("AR model loaded!");
+	Serial.println("Loading Tensorflow model....");
+	AR_model = tflite::GetModel(AR_model_fullint_quantized_tflite);
+	Serial.println("AR model loaded!");
 
-	// // Define ops resolver and error reporting
-	// static tflite::AllOpsResolver AR_resolver;
-	// Serial.println("Resolver loaded!");
+	// Define ops resolver and error reporting
+	static tflite::AllOpsResolver AR_resolver;
+	Serial.println("Resolver loaded!");
 
-	// static tflite::ErrorReporter* AR_error_reporter;
-	// static tflite::MicroErrorReporter AR_micro_error;
-	// AR_error_reporter = &AR_micro_error;
-	// Serial.println("Error reporter loaded!");
+	static tflite::ErrorReporter* AR_error_reporter;
+	static tflite::MicroErrorReporter AR_micro_error;
+	AR_error_reporter = &AR_micro_error;
+	Serial.println("Error reporter loaded!");
 
-	// // Instantiate the interpreter 
-	// static tflite::MicroInterpreter AR_static_interpreter(
-	// 	AR_model, AR_resolver, AR_tensor_pool, AR_tensor_pool_size, AR_error_reporter
-	// );
+	// Instantiate the interpreter 
+	static tflite::MicroInterpreter AR_static_interpreter(
+		AR_model, AR_resolver, AR_tensor_pool, AR_tensor_pool_size, AR_error_reporter
+	);
 
-	// AR_interpreter = &AR_static_interpreter;
-	// Serial.println("Interpreter loaded!");
+	AR_interpreter = &AR_static_interpreter;
+	Serial.println("Interpreter loaded!");
 
-	// // Allocate the the model's tensors in the memory pool that was created.
-	// Serial.println("Allocating tensors to memory pool");
-	// if(AR_interpreter->AllocateTensors() != kTfLiteOk) {
-	// 	Serial.printf("Model provided is schema version %d not equal to supported version %d.\n",
-    //                          AR_model->version(), TFLITE_SCHEMA_VERSION);
-	// 	Serial.println("There was an error allocating the memory...ooof");
-	// 	return;
-	// }
+	// Allocate the the model's tensors in the memory pool that was created.
+	Serial.println("Allocating tensors to memory pool");
+	if(AR_interpreter->AllocateTensors() != kTfLiteOk) {
+		Serial.printf("Model provided is schema version %d not equal to supported version %d.\n",
+                             AR_model->version(), TFLITE_SCHEMA_VERSION);
+		Serial.println("There was an error allocating the memory...ooof");
+		return;
+	}
 
-	// // Define input and output nodes
-	// AR_input = AR_interpreter->input(0);
-	// AR_output = AR_interpreter->output(0);
-	// Serial.println("Input and output nodes loaded!");
+	// Define input and output nodes
+	AR_input = AR_interpreter->input(0);
+	AR_output = AR_interpreter->output(0);
+	Serial.println("Input and output nodes loaded!");
 
 
 	// ********************** Google Sheets portion ************************
@@ -161,10 +166,16 @@ void setup() {
     Serial.print("Connecting to Wi-Fi");
     unsigned long ms = millis();
     while (WiFi.status() != WL_CONNECTED) {
+		if (numConnection >= 15) {
+			Serial.println("Failed to connect to Wi-Fi");
+			ESP.restart();
+		}
         Serial.print(".");
+		numConnection++;
         delay(300);
     }
 
+	digitalWrite(LED_BUILTIN, HIGH);
     Serial.println();
     Serial.print("Connected with IP: ");
     Serial.println(WiFi.localIP());
@@ -189,7 +200,7 @@ void loop() {
     bool ready = GSheet.ready();
 
 	// bool ready = 1;
-	if (ready) {
+	if (ready && rowNumber < lastRow) {
         FirebaseJson response;
         FirebaseJsonData data;
         FirebaseJsonArray dataArr;
@@ -312,4 +323,10 @@ void loop() {
 
 	Serial.println("Waiting 1 seconds before next inference...");
 	delay(1000);
+
+	if (rowNumber >= lastRow) {
+		Serial.println("Done with testing, putting ESP32 to deepsleep...");
+
+		ESP.deepSleep(UINT32_MAX);
+	}
 }
