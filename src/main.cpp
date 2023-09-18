@@ -32,32 +32,36 @@ limitations under the License.
 void tokenStatusCallback(TokenInfo info);
 
 // Create a memory pool for the nodes in the network
-constexpr int FFT_tensor_pool_size = 2 * 1024;
-alignas(16) uint8_t FFT_tensor_pool[FFT_tensor_pool_size];
+// constexpr int FFT_tensor_pool_size = 2 * 1024;
+// alignas(16) uint8_t FFT_tensor_pool[FFT_tensor_pool_size];
 
 constexpr int AR_tensor_pool_size = 10 * 1024;
 alignas(16) uint8_t AR_tensor_pool[AR_tensor_pool_size];
 
 // Define the model to be used
-const tflite::Model* FFT_model;
+// const tflite::Model* FFT_model;
 const tflite::Model* AR_model;
 
 // Define the interpreter
-tflite::MicroInterpreter* FFT_interpreter;
+// tflite::MicroInterpreter* FFT_interpreter;
 tflite::MicroInterpreter* AR_interpreter;
 
-// To load data to test FFT model
-#define INPUT_SIZE 5
+// To load data to test AR model
+#define INPUT_SIZE 100
+#define GOOGLE_SHEETS_DELAY 0.3 	// Number of seconds between each API call to Google Sheets
+								// API limit is 300 requests per minute per project for read and write separately
 float user_input[INPUT_SIZE];
+float recon_data[INPUT_SIZE];
+double THRESHOLD = 0.01079690292263054;
 
 // For editing Google sheets
-volatile unsigned long rowNumber = 6000;
-int lastRow = 8576;
+volatile unsigned long rowNumber = 7250;
+int lastRow = 10000;
 int numConnection = 0;
 
 // Input/Output nodes for the network
-TfLiteTensor* FFT_input;
-TfLiteTensor* FFT_output;
+// TfLiteTensor* FFT_input;
+// TfLiteTensor* FFT_output;
 TfLiteTensor* AR_input;
 TfLiteTensor* AR_output;
 
@@ -84,39 +88,39 @@ void setup() {
 	// Use to easily indicate if WiFi is connected
 	pinMode(LED_BUILTIN, OUTPUT);
 
-	// ********************** Loading of FFT Model ************************
-	// Load the FFT model
-	Serial.println("Loading FFT Tensorflow model....");
-	FFT_model = tflite::GetModel(FFT_model_quantized_tflite);
-	Serial.println("FFT model loaded!");
+	// // ********************** Loading of FFT Model ************************
+	// // Load the FFT model
+	// Serial.println("Loading FFT Tensorflow model....");
+	// FFT_model = tflite::GetModel(FFT_model_quantized_tflite);
+	// Serial.println("FFT model loaded!");
 
-	// Define ops resolver and error reporting
-	static tflite::AllOpsResolver FFT_resolver;
+	// // Define ops resolver and error reporting
+	// static tflite::AllOpsResolver FFT_resolver;
 
-	static tflite::ErrorReporter* FFT_error_reporter;
-	static tflite::MicroErrorReporter FFT_micro_error;
-	FFT_error_reporter = &FFT_micro_error;
+	// static tflite::ErrorReporter* FFT_error_reporter;
+	// static tflite::MicroErrorReporter FFT_micro_error;
+	// FFT_error_reporter = &FFT_micro_error;
 
-	// Instantiate the interpreter 
-	static tflite::MicroInterpreter FFT_static_interpreter(
-		FFT_model, FFT_resolver, FFT_tensor_pool, FFT_tensor_pool_size, FFT_error_reporter
-	);
+	// // Instantiate the interpreter 
+	// static tflite::MicroInterpreter FFT_static_interpreter(
+	// 	FFT_model, FFT_resolver, FFT_tensor_pool, FFT_tensor_pool_size, FFT_error_reporter
+	// );
 
-	FFT_interpreter = &FFT_static_interpreter;
+	// FFT_interpreter = &FFT_static_interpreter;
 
-	// Allocate the the model's tensors in the memory pool that was created.
-	Serial.println("Allocating tensors to memory pool");
-	if(FFT_interpreter->AllocateTensors() != kTfLiteOk) {
-		Serial.printf("Model provided is schema version %d not equal to supported version %d.\n",
-                             FFT_model->version(), TFLITE_SCHEMA_VERSION);
-		Serial.println("There was an error allocating the memory...ooof");
-		return;
-	}
+	// // Allocate the the model's tensors in the memory pool that was created.
+	// Serial.println("Allocating tensors to memory pool");
+	// if(FFT_interpreter->AllocateTensors() != kTfLiteOk) {
+	// 	Serial.printf("Model provided is schema version %d not equal to supported version %d.\n",
+    //                          FFT_model->version(), TFLITE_SCHEMA_VERSION);
+	// 	Serial.println("There was an error allocating the memory...ooof");
+	// 	return;
+	// }
 
-	// Define input and output nodes
-	FFT_input = FFT_interpreter->input(0);
-	FFT_output = FFT_interpreter->output(0);
-	Serial.println("Input and output nodes loaded!");
+	// // Define input and output nodes
+	// FFT_input = FFT_interpreter->input(0);
+	// FFT_output = FFT_interpreter->output(0);
+	// Serial.println("Input and output nodes loaded!");
 
 
 	// ********************** Loading of AR Model ************************
@@ -208,8 +212,8 @@ void loop() {
         // especially in low memory device that deserializing large JSON response may be failed as in ESP8266
         rowNumber++;
         Serial.printf("Row number: %d\n", rowNumber);
-        String startCol = "Sheet1!A";
-        String endCol = ":F";
+        String startCol = "UnhealthyAR!A";
+        String endCol = ":CV";
         startCol.concat(String(rowNumber));
         endCol.concat(String(rowNumber));
         startCol.concat(endCol);
@@ -223,7 +227,7 @@ void loop() {
 
         bool success = GSheet.values.get(&response /* returned response */, SPREADSHEET_ID /* spreadsheet Id to read */, rangeToRead /* range to read */);
 
-        response.toString(Serial, true);
+        // response.toString(Serial, true);
         Serial.println();
         response.get(data, "values/[0]");
         data.get<FirebaseJsonArray>(dataArr);
@@ -232,12 +236,12 @@ void loop() {
             dataArr.get(data, i);
 
             //Print its value
-            Serial.print("Array index: ");
-            Serial.print(i);
-            Serial.print(", type: ");
-            Serial.print(data.type);
-            Serial.print(", value: ");
-            Serial.println(data.to<String>());
+            // Serial.print("Array index: ");
+            // Serial.print(i);
+            // Serial.print(", type: ");
+            // Serial.print(data.type);
+            // Serial.print(", value: ");
+            // Serial.println(data.to<String>());
 
 			if (i < INPUT_SIZE) {
 				user_input[i] = data.to<String>().toFloat();
@@ -272,31 +276,50 @@ void loop() {
 
 	// Set the input node to the user input
 	for (int i = 0; i < INPUT_SIZE; i++) {
-		FFT_input->data.f[i] = user_input[i];
+		// FFT_input->data.f[i] = user_input[i];
+		AR_input->data.f[i] = user_input[i];
 	}
 
 	Serial.println("Running inference on inputted data...");
 
-	// Run inference on the input data
-	if(FFT_interpreter->Invoke() != kTfLiteOk) {
-		Serial.println("There was an error invoking the interpreter!");
+	// Run inference on the FFT input data
+	// if(FFT_interpreter->Invoke() != kTfLiteOk) {
+	// 	Serial.println("There was an error invoking the FFT interpreter!");
+	// 	return;
+	// }
+
+	// Run infernece on the AR input data
+	if(AR_interpreter->Invoke() != kTfLiteOk) {
+		Serial.println("There was an error invoking the AR interpreter!");
 		return;
 	}
 
 	Serial.println("Inference complete!");
 
-	// Print the output of the model.
-	Serial.print("Output 1: ");
-	Serial.println(FFT_output->data.f[0]);
-	Serial.print("Output 2: ");
-	Serial.println(FFT_output->data.f[1]);
+	// Save the output of the FFT inference
+	// for (int i = 0; i < INPUT_SIZE; i++) {
+	// 	recon_data[i] = FFT_output->data.f[i];
+	// }
 
-	int predicted;
-	if (FFT_output->data.f[0] > FFT_output->data.f[1]) {
-		predicted = 0;
-	} else {
-		predicted = 1;
+	// Save the output of the AR inference
+	for (int i = 0; i < INPUT_SIZE; i++) {
+		recon_data[i] = AR_output->data.f[i];
 	}
+
+	for (int i = 0; i < INPUT_SIZE; i++) {
+		Serial.printf("Output %d: %f\n", i, recon_data[i]);
+	}
+
+	// Calculate MSE
+	double MSE = 0.0;
+	for (int i = 0; i < INPUT_SIZE; i++) {
+		double diff = user_input[i] - recon_data[i];
+		MSE += diff * diff;
+	}
+	MSE /= INPUT_SIZE;
+
+	// Print MSE
+	Serial.printf("MSE: %f\n", MSE);
 
 	// For sending result to Google sheets
 	if (ready) {
@@ -304,14 +327,14 @@ void loop() {
 		FirebaseJson updateResponse;
 
 
-		String updateCol = "Sheet1!G";
+		String updateCol = "UnhealthyAR!CX";
 		updateCol.concat(String(rowNumber));
 
 		String updateRange = updateCol;
 
 		toUpdate.add("range", updateCol);
 		toUpdate.add("majorDimension", "ROWS");
-		toUpdate.set("values/[0]/[0]", predicted);
+		toUpdate.set("values/[0]/[0]", MSE);
 
 		bool success0 = GSheet.values.update(&updateResponse /* returned response */, SPREADSHEET_ID /* spreadsheet Id to update */, updateRange /* range to update */, &toUpdate /* data to update */);
 		updateResponse.toString(Serial, true);
@@ -321,8 +344,8 @@ void loop() {
 		Serial.println(ESP.getFreeHeap());
 	}
 
-	Serial.println("Waiting 1 seconds before next inference...");
-	delay(1000);
+	Serial.printf("Waiting %d seconds before next inference...\n", GOOGLE_SHEETS_DELAY);
+	delay(1000 * GOOGLE_SHEETS_DELAY);
 
 	if (rowNumber >= lastRow) {
 		Serial.println("Done with testing, putting ESP32 to deepsleep...");
