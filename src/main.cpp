@@ -10,7 +10,7 @@
    Step 3 : Once uploaded, inside S3, select the bin file >> More (button on top of the file list) >> Make Public
    Step 4 : You S3 URL => http://bucket-name.s3.ap-south-1.amazonaws.com/sketch-name.ino.bin
    Step 5 : Build the above URL and fire it either in your browser or curl it `curl -I -v http://bucket-name.ap-south-1.amazonaws.com/sketch-name.ino.bin` to validate the same
-   Step 6:  Plug in your SSID, Password, S3 Host and Bin file below
+   Step 6:  Plug in your WIFI_SSID, Password, S3 Host and Bin file below
 
    Build & upload
    Step 1 : Menu > Sketch > Export Compiled Library. The bin file will be saved in the sketch folder (Menu > Sketch > Show Sketch folder)
@@ -19,32 +19,44 @@
    // Check the bottom of this sketch for sample serial monitor log, during and after successful OTA Update
 */
 
+#define BLYNK_TEMPLATE_ID "TMPLbMbSLqQv"
+#define BLYNK_TEMPLATE_NAME "Norika Water Meter and Pressure Sensor"
+#define BLYNK_AUTH_TOKEN "WJPexy_64oJzZqY9dcOe-nQKiEtQDSz6"
+
 #include "tensorflow/lite/micro/all_ops_resolver.h"
 #include "tensorflow/lite/micro/micro_error_reporter.h"
 #include "tensorflow/lite/micro/micro_interpreter.h"
 #include "tensorflow/lite/schema/schema_generated.h"
 #include "AR_model.h"
+#include "BlynkSimpleEsp32.h"
 // #include "SparkFun_LIS2DH12.h"
 #include <Adafruit_MPU6050.h>
 #include <Adafruit_Sensor.h>
 #include <Arduino.h>
 #include <WiFi.h>
-// #include <ESP_Google_Sheet_Client.h>
+#include <ESP_Google_Sheet_Client.h>
 #include <secrets.h>
 #include <vector>
 #include <Update.h>
 
 WiFiClient client;
 
-// Variables to validate
-// response from S3
+// Blynk variables
+#define OTA_VPIN V0
+volatile bool OTAAvailable = false;
+
+// Variables to validate response from S3
 long contentLength = 0;
 bool isValidContentType = false;
 
-// Your SSID and PSWD that the chip needs
-// to connect to
-const char* SSID = "galaxy";
-const char* PSWD = "13572468";
+BLYNK_CONNECTED()
+{
+  Blynk.syncVirtual(OTA_VPIN);
+}
+
+BLYNK_WRITE(OTA_VPIN) {
+  OTAAvailable = param.asInt();
+}
 
 // Utility to extract header value from headers
 String getHeaderValue(String header, String headerName) {
@@ -53,24 +65,21 @@ String getHeaderValue(String header, String headerName) {
 
 // OTA Logic 
 void execOTA() {
-  Serial.println("Connecting to: " + String(S3_HOST));
+  Serial.printf("Connecting to: %s\n", S3_HOST);
   // Connect to S3
   if (client.connect(S3_HOST, S3_PORT)) {
     // Connection Succeed.
     // Fecthing the bin
-    Serial.println("Fetching Bin: " + String(S3_BIN));
+    Serial.printf("Fetching Bin: %s\n", String(S3_BIN));
 
     // Get the contents of the bin file
-    client.print(String("GET ") + S3_BIN + " HTTP/1.1\r\n" +
-                 "Host: " + S3_HOST + "\r\n" +
-                 "Cache-Control: no-cache\r\n" +
-                 "Connection: close\r\n\r\n");
+    String request = String("GET ");
+    request += S3_BIN;
+    request += " HTTP/1.1\r\nHost: ";
+    request += S3_HOST;
+    request += "\r\nCache-Control: no-cache\r\nConnection: close\r\n\r\n";
 
-    // Check what is being sent
-    //    Serial.print(String("GET ") + bin + " HTTP/1.1\r\n" +
-    //                 "Host: " + host + "\r\n" +
-    //                 "Cache-Control: no-cache\r\n" +
-    //                 "Connection: close\r\n\r\n");
+    client.print(request);
 
     unsigned long timeout = millis();
     while (client.available() == 0) {
@@ -82,23 +91,14 @@ void execOTA() {
     }
 
     while (client.available()) {
-      // read line till /n
       String line = client.readStringUntil('\n');
-      // remove space, to check if the line is end of headers
       line.trim();
 
-      // if the the line is empty,
-      // this is end of headers
-      // break the while and feed the
-      // remaining `client` to the
-      // Update.writeStream();
       if (!line.length()) {
         //headers ended
         break; // and get the OTA started
       }
 
-      // Check if the HTTP Response is 200
-      // else break and Exit Update
       if (line.startsWith("HTTP/1.1")) {
         if (line.indexOf("200") < 0) {
           Serial.println("Got a non 200 status code from server. Exiting OTA Update.");
@@ -106,17 +106,15 @@ void execOTA() {
         }
       }
 
-      // extract headers here
-      // Start with content length
       if (line.startsWith("Content-Length: ")) {
         contentLength = atol((getHeaderValue(line, "Content-Length: ")).c_str());
-        Serial.println("Got " + String(contentLength) + " bytes from server");
+        Serial.printf("Got %s bytes from server\n", String(contentLength));
       }
 
       // Next, the content type
       if (line.startsWith("Content-Type: ")) {
         String contentType = getHeaderValue(line, "Content-Type: ");
-        Serial.println("Got " + contentType + " payload.");
+        Serial.printf("Got %s payload\n", contentType.c_str());
         if (contentType == "application/octet-stream") {
           isValidContentType = true;
         }
@@ -124,15 +122,13 @@ void execOTA() {
     }
   } else {
     // Connect to S3 failed
-    // May be try?
-    // Probably a choppy network?
-    Serial.println("Connection to " + String(S3_HOST) + " failed. Please check your setup");
+    Serial.printf("Connection to %s failed. Please check your setup\n",String(S3_HOST));
     // retry??
     // execOTA();
   }
 
   // Check what is the contentLength and if content type is `application/octet-stream`
-  Serial.println("contentLength : " + String(contentLength) + ", isValidContentType : " + String(isValidContentType));
+  Serial.printf("contentLength : %s, isValidContentType : %s\n", String(contentLength), String(isValidContentType));
 
   // check contentLength and content type
   if (contentLength && isValidContentType) {
@@ -141,17 +137,16 @@ void execOTA() {
 
     // If yes, begin
     if (canBegin) {
-      Serial.println("Begin OTA. This may take 2 - 5 mins to complete. Things might be quite for a while.. Patience!");
+      Blynk.virtualWrite(OTA_VPIN, 0); // Set OTA_VPIN to 0
+      Serial.println("OTA in progress...");
       // No activity would appear on the Serial monitor
       // So be patient. This may take 2 - 5mins to complete
       size_t written = Update.writeStream(client);
 
       if (written == contentLength) {
-        Serial.println("Written : " + String(written) + " successfully");
+        Serial.printf("Written : %s successfully\n", String(written));
       } else {
-        Serial.println("Written only : " + String(written) + "/" + String(contentLength) + ". Retry?" );
-        // retry??
-        // execOTA();
+        Serial.printf("Written only : %s/%s. Retry?\n", String(written), String(contentLength));
       }
 
       if (Update.end()) {
@@ -163,7 +158,7 @@ void execOTA() {
           Serial.println("Update not finished? Something went wrong!");
         }
       } else {
-        Serial.println("Error Occurred. Error #: " + String(Update.getError()));
+        Serial.printf("Error Occurred. Error #: %s\n", String(Update.getError()));
       }
     } else {
       // not enough space to begin OTA
@@ -181,10 +176,10 @@ void setup() {
   Serial.begin(115200);
   delay(10);
 
-  Serial.println("Connecting to " + String(SSID));
+  Serial.printf("Connecting to %s\n", String(WIFI_SSID));
 
-  // Connect to provided SSID and PSWD
-  WiFi.begin(SSID, PSWD);
+  // Connect to provided WIFI_SSID and WIFI_PASSWORD
+  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
 
   // Wait for connection to establish
   while (WiFi.status() != WL_CONNECTED) {
@@ -194,12 +189,26 @@ void setup() {
 
   // Connection Succeed
   Serial.println("");
-  Serial.println("Connected to " + String(SSID));
+  Serial.printf("Connected to %s\n", String(WIFI_SSID));
+
+  // Connect to Blynk
+  Blynk.begin(BLYNK_AUTH_TOKEN, WIFI_SSID, WIFI_PASSWORD, "blynk.cloud", 8080);
+  if (Blynk.connected()) {
+    Serial.println("Blynk Connected");
+    Blynk.syncVirtual(OTA_VPIN);
+  } else {
+    Serial.println("Blynk Not Connected");
+  }
 
   // Execute OTA Update
-  execOTA();
+  if (OTAAvailable) {
+    Serial.println("OTA is available");
+    execOTA();
+  } else {
+    Serial.println("OTA is not available");
+  }
 }
 
 void loop() {
-  // chill
+  Blynk.run();
 }
