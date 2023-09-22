@@ -86,15 +86,15 @@ tflite::MicroInterpreter* AR_interpreter;
 
 #define GOOGLE_SHEETS_DELAY 0.25 	// Number of seconds between each API call to Google Sheets
 									// API limit is 300 requests per minute per project for read and write separately
-#define SHEET_NAME "Uploaded"	// Name of the sheet to be used
+String SHEET_NAME = "Uploaded";	// Name of the sheet to be used
 
 // Variables for AR model
 float AR_user_input[AR_INPUT_SIZE];
 float recon_data[AR_INPUT_SIZE];
-double THRESHOLD = 0.005262835091655835;
+double THRESHOLD = 0;
 
 // For editing Google sheets
-volatile unsigned long currRowNumber = 0;
+volatile unsigned long currRowNumber = 10;
 int lastRow = 10000;
 int numConnection = 0;
 
@@ -121,18 +121,64 @@ void tokenStatusCallback(TokenInfo info) {
     }
 }
 
+// For getting inference from AR model
+double getARInference(vector<float> accelYVecVert) {
+	// Set the input node to the user input
+	for (int i = 0; i < AR_INPUT_SIZE; i++) {
+		// FFT_input->data.f[i] = user_input[i];
+		AR_input->data.f[i] = accelYVecVert[i];
+	}
+
+	Serial.println("Running inference on inputted data...");
+
+	// Run infernece on the AR input data
+	if(AR_interpreter->Invoke() != kTfLiteOk) {
+		Serial.println("There was an error invoking the AR interpreter!");
+		return -1.0;
+	}
+
+	Serial.println("Inference complete!");
+
+	// Save the output of the AR inference
+	for (int i = 0; i < AR_INPUT_SIZE; i++) {
+		recon_data[i] = AR_output->data.f[i];
+	}
+
+	// for (int i = 0; i < AR_INPUT_SIZE; i++) {
+	// 	Serial.printf("AR Output %d: %f\n", i, recon_data[i]);
+	// }
+
+	// Calculate MSE
+	double MSE = 0.0;
+	for (int i = 0; i < AR_INPUT_SIZE; i++) {
+		double diff = AR_user_input[i] - recon_data[i];
+		MSE += diff * diff;
+	}
+	MSE /= AR_INPUT_SIZE;
+
+	Serial.printf("MSE: %f\n", MSE);
+	if (MSE > THRESHOLD) {
+		Serial.println("MSE > Threshold -> Unhealthy!");
+	} else {
+		Serial.println("MSE <= Threshold -> Healthy!");
+	}
+
+	return MSE;
+}
+
 // For sending data to Google sheets
-void sendGoogleSheets(vector<float> accelYVecVert, unsigned long currRowNumber, int lastRow, String sheetName) {
+void sendGoogleSheets(vector<float> accelYVecVert, unsigned long currRowNumber, int lastRow, double MSE,String sheetName) {
 	FirebaseJson updateOutput;
 	FirebaseJson updateCurrentRow;
 	FirebaseJson updateResponse;
+	FirebaseJson updateMSE;
 
-	String sheetRange = sheetName;
-	sheetRange.concat("!C");
-	sheetRange.concat(String(currRowNumber));
-	sheetRange.concat(":CX");
-	sheetRange.concat(String(currRowNumber));
-	updateOutput.add("range", sheetRange);
+	String dataSheetRange = sheetName;
+	dataSheetRange.concat("!A"); // Start from column A
+	dataSheetRange.concat(String(currRowNumber));
+	dataSheetRange.concat(":CV"); // End at column CV
+	dataSheetRange.concat(String(currRowNumber));
+	updateOutput.add("range", dataSheetRange);
  	updateOutput.add("majorDimension", "ROWS");
 
 	for (int i = 0; i < 100; i++) {
@@ -143,13 +189,34 @@ void sendGoogleSheets(vector<float> accelYVecVert, unsigned long currRowNumber, 
 		updateOutput.set(updateRowCol, accelYVecVert[i]);
 	}
 
-	bool success = GSheet.values.update(&updateResponse /* returned response */, SPREADSHEET_ID /* spreadsheet Id to update */, sheetRange /* range to update */, &updateOutput /* data to update */);
-	updateResponse.toString(Serial, true);
+	// Updating MSE
+	String updateMSECol = sheetName;
+	updateMSECol.concat("!CX");
+	updateMSECol.concat(String(currRowNumber));
+	updateMSE.add("range", updateMSECol);
+	updateMSE.add("majorDimension", "ROWS");
+	updateMSE.set("values/[0]/[0]", MSE);
+
+	// To update latest row number
+	String updateCurrentRowRange = sheetName;
+	updateCurrentRowRange.concat("!A2");
+	updateCurrentRow.add("range", updateCurrentRowRange);
+	updateCurrentRow.add("majorDimension", "ROWS");
+	updateCurrentRow.set("values/[0]/[0]", currRowNumber);
+
+	// Appending data + row number to update all at once
+	FirebaseJsonArray updateArr;
+	updateArr.add(updateCurrentRow);
+	updateArr.add(updateOutput);
+	updateArr.add(updateMSE);
+
+	bool success = GSheet.values.batchUpdate(&updateResponse, 		// Returned response
+											SPREADSHEET_ID, 		// Spreadsheet ID to update
+											&updateArr); 			// Array of data to update
+
+	// updateResponse.toString(Serial, true);
 	Serial.println();
-
 }
-	
-
 
 // Set up the ESP32's environment.
 void setup() { 
@@ -292,40 +359,40 @@ void setup() {
 	timerAlarmEnable(acc_timer);
 
 	// ********************** Loading of AR Model ************************
-	// Serial.println("Loading Tensorflow model....");
-	// AR_model = tflite::GetModel(AR_model_fullint_quantized_tflite);
-	// Serial.println("AR model loaded!");
+	Serial.println("Loading Tensorflow model....");
+	AR_model = tflite::GetModel(AR_model_fullint_quantized_tflite);
+	Serial.println("AR model loaded!");
 
-	// // Define ops resolver and error reporting
-	// static tflite::AllOpsResolver AR_resolver;
-	// Serial.println("Resolver loaded!");
+	// Define ops resolver and error reporting
+	static tflite::AllOpsResolver AR_resolver;
+	Serial.println("Resolver loaded!");
 
-	// static tflite::ErrorReporter* AR_error_reporter;
-	// static tflite::MicroErrorReporter AR_micro_error;
-	// AR_error_reporter = &AR_micro_error;
-	// Serial.println("Error reporter loaded!");
+	static tflite::ErrorReporter* AR_error_reporter;
+	static tflite::MicroErrorReporter AR_micro_error;
+	AR_error_reporter = &AR_micro_error;
+	Serial.println("Error reporter loaded!");
 
-	// // Instantiate the interpreter 
-	// static tflite::MicroInterpreter AR_static_interpreter(
-	// 	AR_model, AR_resolver, AR_tensor_pool, AR_tensor_pool_size, AR_error_reporter
-	// );
+	// Instantiate the interpreter 
+	static tflite::MicroInterpreter AR_static_interpreter(
+		AR_model, AR_resolver, AR_tensor_pool, AR_tensor_pool_size, AR_error_reporter
+	);
 
-	// AR_interpreter = &AR_static_interpreter;
-	// Serial.println("Interpreter loaded!");
+	AR_interpreter = &AR_static_interpreter;
+	Serial.println("Interpreter loaded!");
 
-	// // Allocate the the model's tensors in the memory pool that was created.
-	// Serial.println("Allocating tensors to memory pool");
-	// if(AR_interpreter->AllocateTensors() != kTfLiteOk) {
-	// 	Serial.printf("Model provided is schema version %d not equal to supported version %d.\n",
-    //                          AR_model->version(), TFLITE_SCHEMA_VERSION);
-	// 	Serial.println("There was an error allocating the memory...ooof");
-	// 	return;
-	// }
+	// Allocate the the model's tensors in the memory pool that was created.
+	Serial.println("Allocating tensors to memory pool");
+	if(AR_interpreter->AllocateTensors() != kTfLiteOk) {
+		Serial.printf("Model provided is schema version %d not equal to supported version %d.\n",
+                             AR_model->version(), TFLITE_SCHEMA_VERSION);
+		Serial.println("There was an error allocating the memory...ooof");
+		return;
+	}
 
-	// // Define input and output nodes
-	// AR_input = AR_interpreter->input(0);
-	// AR_output = AR_interpreter->output(0);
-	// Serial.println("Input and output nodes loaded!");
+	// Define input and output nodes
+	AR_input = AR_interpreter->input(0);
+	AR_output = AR_interpreter->output(0);
+	Serial.println("Input and output nodes loaded!");
 
 	// ********************** Google Sheets portion ************************
 	GSheet.printf("ESP Google Sheet Client v%s\n\n", ESP_GOOGLE_SHEET_CLIENT_VERSION);
@@ -367,11 +434,24 @@ void setup() {
 	rowNumberCol.concat("!A2");
 
 	bool success = GSheet.values.get(&response /* returned response */, SPREADSHEET_ID /* spreadsheet Id to read */, rowNumberCol /* range to read */);
-	response.toString(Serial, true); // To view the entire response
+	// response.toString(Serial, true); // To view the entire response
 	Serial.println();
 	response.get(data, "values/[0]/[0]");
 	currRowNumber = data.to<long>();
+	if (currRowNumber < 11) { // Leave first 10 rows free
+		currRowNumber = 11;
+	}
 	Serial.printf("Previous row number: %d\n", currRowNumber);
+
+	// Get the model threshold value
+	rowNumberCol = SHEET_NAME;
+	rowNumberCol.concat("!B2");
+	success = GSheet.values.get(&response /* returned response */, SPREADSHEET_ID /* spreadsheet Id to read */, rowNumberCol /* range to read */);
+	// response.toString(Serial, true); // To view the entire response
+	Serial.println();
+	response.get(data, "values/[0]/[0]");
+	THRESHOLD = data.to<double>();
+	Serial.printf("Threshold: %f\n", THRESHOLD);
 }
 
 
@@ -414,7 +494,8 @@ void loop() {
 
 		Serial.printf("Number of samples Vertical: %s\n", String(accelYVecVert.size()));
 		// Serial.printf("Number of samples Horizontal: %s\n", String(accelXVecHori.size()));
-		sendGoogleSheets(accelYVecVert, currRowNumber, lastRow, SHEET_NAME);
+		double MSE = getARInference(accelYVecVert);
+		sendGoogleSheets(accelYVecVert, currRowNumber, lastRow, MSE, SHEET_NAME);
 		currRowNumber++;
 
 		accelXVecVert.clear();
@@ -460,133 +541,6 @@ void loop() {
 			minAccelYVert = y_value;
 		}
 	}
-
-	// Call ready() repeatedly in loop for authentication checking and processing
-    bool ready = GSheet.ready();
-	if (ready && currRowNumber < lastRow) {
-        // FirebaseJson response;
-        // FirebaseJsonData data;
-        // FirebaseJsonArray dataArr;
-        // // Instead of using FirebaseJson for response, you can use String for response to the functions
-        // // especially in low memory device that deserializing large JSON response may be failed as in ESP8266
-        // currRowNumber++;
-        // Serial.printf("Current row number: %d\n", currRowNumber);
-
-        // String startCol = SHEET_NAME;
-		// startCol.concat("!C");
-
-        // String endCol = ":CX";
-        // startCol.concat(String(currRowNumber));
-        // endCol.concat(String(currRowNumber));
-        // startCol.concat(endCol);
-        // String rangeToRead = startCol;
-
-        // Serial.println("---------------------------------------------------------------");
-
-        // // For Google Sheet API ref doc, go to https://developers.google.com/sheets/api/reference/rest/v4/spreadsheets.values/get
-
-        // bool success = GSheet.values.get(&response /* returned response */, SPREADSHEET_ID /* spreadsheet Id to read */, rangeToRead /* range to read */);
-
-        // // response.toString(Serial, true); // To view the entire response
-        // Serial.println();
-        // response.get(data, "values/[0]");
-        // data.get<FirebaseJsonArray>(dataArr);
-
-        // for (int i = 0; i < dataArr.size(); i++) {
-        //     dataArr.get(data, i);
-		// 	if (i < AR_INPUT_SIZE) {
-		// 		AR_user_input[i] = data.to<String>().toFloat();
-		// 	}
-        // }
-
-		// // To check if user input is set correctly
-		// for (int i = 0; i < AR_INPUT_SIZE; i++) {
-		// 	Serial.printf("Input %d: %f\n", i, AR_user_input[i]);
-		// }
-        
-        // Serial.println();
-        // Serial.println("---------------------------------------------------------------");
-    }
-	
-	// Serial.print("Free heap: ");
-	// Serial.println(ESP.getFreeHeap());
-
-	// // Set the input node to the user input
-	// for (int i = 0; i < AR_INPUT_SIZE; i++) {
-	// 	// FFT_input->data.f[i] = user_input[i];
-	// 	AR_input->data.f[i] = AR_user_input[i];
-	// }
-
-	// Serial.println("Running inference on inputted data...");
-
-	// // Run infernece on the AR input data
-	// if(AR_interpreter->Invoke() != kTfLiteOk) {
-	// 	Serial.println("There was an error invoking the AR interpreter!");
-	// 	return;
-	// }
-
-	// Serial.println("Inference complete!");
-
-	// // Save the output of the AR inference
-	// for (int i = 0; i < AR_INPUT_SIZE; i++) {
-	// 	recon_data[i] = AR_output->data.f[i];
-	// }
-
-	// for (int i = 0; i < AR_INPUT_SIZE; i++) {
-	// 	Serial.printf("AR Output %d: %f\n", i, recon_data[i]);
-	// }
-
-	// Calculate MSE
-	// double MSE = 0.0;
-	// for (int i = 0; i < AR_INPUT_SIZE; i++) {
-	// 	double diff = AR_user_input[i] - recon_data[i];
-	// 	MSE += diff * diff;
-	// }
-	// MSE /= AR_INPUT_SIZE;
-
-	// Serial.printf("MSE: %f\n", MSE);
-	// if (MSE > THRESHOLD) {
-	// 	Serial.println("MSE > Threshold -> Unhealthy!");
-	// } else {
-	// 	Serial.println("MSE <= Threshold -> Healthy!");
-	// }
-
-	// For sending AR result to Google sheets
-	// if (ready) {
-	// 	FirebaseJson updateOutput;
-	// 	FirebaseJson updateCurrentRow;
-	// 	FirebaseJson updateResponse;
-
-	// 	// To update latest MSE calculated
-	// 	String updateResultCol = "UnhealthyAR!CX";
-	// 	updateResultCol.concat(String(currRowNumber));
-	// 	String updateRange = updateResultCol;
-
-	// 	updateOutput.add("range", updateResultCol);
-	// 	updateOutput.add("majorDimension", "ROWS");
-	// 	updateOutput.set("values/[0]/[0]", MSE);
-
-	// 	// To update latest row number
-	// 	String updateCurrentRowRange = "UnhealthyAR!CZ2";
-	// 	updateCurrentRow.add("range", updateCurrentRowRange);
-	// 	updateCurrentRow.add("majorDimension", "ROWS");
-	// 	updateCurrentRow.set("values/[0]/[0]", currRowNumber);
-
-	// 	// Appending data + row number to update all at once
-	// 	FirebaseJsonArray updateArr;
-	// 	updateArr.add(updateCurrentRow);
-	// 	updateArr.add(updateOutput);
-
-	// 	bool success = GSheet.values.batchUpdate(&updateResponse, 		// Returned response
-	// 											SPREADSHEET_ID, 		// Spreadsheet ID to update
-	// 											&updateArr); 			// Array of data to update
-		
-	// 	// updateResponse.toString(Serial, true);
-	// 	Serial.println();
-	// }
-
-	// Serial.printf("Waiting %.2f seconds before next inference...\n", GOOGLE_SHEETS_DELAY);
-	// delay(1000 * GOOGLE_SHEETS_DELAY);
 
 	if (currRowNumber >= lastRow) {
 		Serial.println("Done with testing, putting ESP32 to deepsleep...");

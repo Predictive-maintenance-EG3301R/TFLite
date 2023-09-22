@@ -1,0 +1,3 @@
+round_epochs,loss,val_loss,first_layer,second_layer,third_layer,activation,epochs,batch_size,dropout
+27,0.004551407415419817,0.004558700602501631,64,32,64,elu,50,32,0
+40,0.0044190287590026855,0.004421086981892586,32,128,32,elu,50,32,0
