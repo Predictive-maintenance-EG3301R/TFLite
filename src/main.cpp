@@ -30,8 +30,21 @@ limitations under the License.
 #include <ESP_Google_Sheet_Client.h>
 #include <secrets.h>
 #include <vector>
+#include "time.h"
 
 using namespace std;
+
+#define NUM_PER_SEND 		40 			// Number of rows to update at once
+#define NUM_PER_SAMPLE 		1000 		// Number of data points per sample
+#define DELAY_PER_SEND		10 		// Delay between each batch of data sent to Google Sheets
+#define DELAY_PER_SAMPLE 	1000 		// Delay between each data point collected
+
+// NTP server details
+const char* ntpServer = "pool.ntp.org";
+const long  gmtOffset_sec = 8 * 3600;
+const int   daylightOffset_sec = 0;
+struct tm timeinfo;
+char str_time[100];
 
 // Accelerometer variables
 int acc_counter = 0;
@@ -86,7 +99,7 @@ tflite::MicroInterpreter* AR_interpreter;
 
 #define GOOGLE_SHEETS_DELAY 0.25 	// Number of seconds between each API call to Google Sheets
 									// API limit is 300 requests per minute per project for read and write separately
-String SHEET_NAME = "Uploaded";	// Name of the sheet to be used
+String SHEET_NAME = "Sheet1";	// Name of the sheet to be used
 
 // Variables for AR model
 float AR_user_input[AR_INPUT_SIZE];
@@ -95,7 +108,7 @@ double THRESHOLD = 0;
 
 // For editing Google sheets
 volatile unsigned long currRowNumber = 10;
-int lastRow = 10000;
+int lastRow = 900000;
 int numConnection = 0;
 
 // Input/Output nodes for the network
@@ -107,6 +120,16 @@ TfLiteTensor* AR_output;
  */
 void IRAM_ATTR onTimer() {
   isAccTimerTriggered = true; // Indicates that the interrupt has been entered since the last time its value was changed to false
+}
+
+// To update the latest datetime
+void updateLatestTime() {
+	if (!getLocalTime(&timeinfo)) {
+		Serial.println("Failed to obtain time, attempting to resync with NTP server...");
+		configTime(gmtOffset_sec, daylightOffset_sec, ntpServer);
+		return;
+	}
+	strftime(str_time, sizeof(str_time), "%Y-%m-%d %H:%M:%S", &timeinfo);
 }
 
 // For Google sheets debugging
@@ -167,55 +190,144 @@ double getARInference(vector<float> accelYVecVert) {
 }
 
 // For sending data to Google sheets
-void sendGoogleSheets(vector<float> accelYVecVert, unsigned long currRowNumber, int lastRow, double MSE,String sheetName) {
+void sendAllDataGoogleSheets() {
+	FirebaseJson updateTime;
 	FirebaseJson updateOutput;
 	FirebaseJson updateCurrentRow;
 	FirebaseJson updateResponse;
 	FirebaseJson updateMSE;
 
-	String dataSheetRange = sheetName;
-	dataSheetRange.concat("!A"); // Start from column A
-	dataSheetRange.concat(String(currRowNumber));
-	dataSheetRange.concat(":CV"); // End at column CV
-	dataSheetRange.concat(String(currRowNumber));
-	updateOutput.add("range", dataSheetRange);
- 	updateOutput.add("majorDimension", "ROWS");
+	/* 
+	 * Update the Google Sheets with the 9 columns of new data, from A to I
+	 * Col A: Time
+	 * Col B: accelXVecVert
+	 * Col C: accelYVecVert
+	 * Col D: accelZVecVert
+	 * Col E: accelXVecHori
+	 * Col F: accelYVecHori
+	 * Col G: accelZVecHori
+	 * Col H: ambientTemp
+	 * Col I: objectTemp
+	 * Col J: current
+	*/
 
-	for (int i = 0; i < 100; i++) {
-		String updateRowCol = "values/[0]/[";
-		updateRowCol.concat(String(i));
-		updateRowCol.concat("]");
+	// Updating of time first
+	updateLatestTime();
+	String updateTimeCol = SHEET_NAME;
+	updateTimeCol.concat("!A");
+	updateTimeCol.concat(String(currRowNumber));
+	updateTime.add("range", updateTimeCol);
+	updateTime.add("majorDimension", "ROWS");
+	updateTime.set("values/[0]/[0]", str_time);
+	bool successTime = GSheet.values.update(&updateResponse, 		// Returned response
+											SPREADSHEET_ID, 		// Spreadsheet ID to update
+											updateTimeCol, 			// Range of data to update
+											&updateTime); 			// Data to update
 
-		updateOutput.set(updateRowCol, accelYVecVert[i]);
+	// Updating of sensor values
+	// !! PLACEHOLDER VALUES
+	float ambientTemp = 1.2;
+	float objectTemp = 3.4;
+	float current = 5.6;
+
+	int numRowWritten = 0;
+
+	while (numRowWritten < NUM_PER_SAMPLE) { // To write to Google Sheets in batches of 40 rows
+		String dataSheetRange = SHEET_NAME;
+		dataSheetRange.concat("!B"); // Start from column B
+		dataSheetRange.concat(String(currRowNumber));
+		dataSheetRange.concat(":J"); // End at column J
+		dataSheetRange.concat(String(currRowNumber+NUM_PER_SEND-1));
+		updateOutput.add("range", dataSheetRange);
+		updateOutput.add("majorDimension", "ROWS");
+
+		for (int i = 0; i < NUM_PER_SEND; i++) {
+			String updateXVert = "values/[";
+			updateXVert.concat(String(i));
+			updateXVert.concat("]/[0]");
+			updateOutput.set(updateXVert, accelXVecVert[i]);
+
+			String updateYVert = "values/[";
+			updateYVert.concat(String(i));
+			updateYVert.concat("]/[1]");
+			updateOutput.set(updateYVert, accelYVecVert[i]);
+
+			String updateZVert = "values/[";
+			updateZVert.concat(String(i));
+			updateZVert.concat("]/[2]");
+			updateOutput.set(updateZVert, accelZVecVert[i]);
+
+			String updateXHori = "values/[";
+			updateXHori.concat(String(i));
+			updateXHori.concat("]/[3]");
+			updateOutput.set(updateXHori, accelXVecHori[i]);
+
+			String updateYHori = "values/[";
+			updateYHori.concat(String(i));
+			updateYHori.concat("]/[4]");
+			updateOutput.set(updateYHori, accelYVecHori[i]);
+
+			String updateZHori = "values/[";
+			updateZHori.concat(String(i));
+			updateZHori.concat("]/[5]");
+			updateOutput.set(updateZHori, accelZVecHori[i]);
+
+			String updateAmbientTemp = "values/[";
+			updateAmbientTemp.concat(String(i));
+			updateAmbientTemp.concat("]/[6]");
+			updateOutput.set(updateAmbientTemp, ambientTemp);
+
+			String updateObjectTemp = "values/[";
+			updateObjectTemp.concat(String(i));
+			updateObjectTemp.concat("]/[7]");
+			updateOutput.set(updateObjectTemp, objectTemp);
+
+			String updateCurrent = "values/[";
+			updateCurrent.concat(String(i));
+			updateCurrent.concat("]/[8]");
+			updateOutput.set(updateCurrent, current);
+		}
+
+		// Updating MSE
+		// String updateMSECol = SHEET_NAME;
+		// updateMSECol.concat("!CX");
+		// updateMSECol.concat(String(currRowNumber));
+		// updateMSE.add("range", updateMSECol);
+		// updateMSE.add("majorDimension", "ROWS");
+		// updateMSE.set("values/[0]/[0]", MSE);
+
+		// To update latest row number
+		currRowNumber += NUM_PER_SEND;
+		numRowWritten += NUM_PER_SEND;
+		String updateCurrentRowRange = SHEET_NAME;
+		updateCurrentRowRange.concat("!A2");
+		updateCurrentRow.add("range", updateCurrentRowRange);
+		updateCurrentRow.add("majorDimension", "ROWS");
+		updateCurrentRow.set("values/[0]/[0]", currRowNumber);
+
+		// Appending data + row number to update all at once
+		FirebaseJsonArray updateArr;
+		updateArr.add(updateCurrentRow);
+		updateArr.add(updateOutput);
+		// updateArr.add(updateMSE);
+
+		bool success = GSheet.values.batchUpdate(&updateResponse, 		// Returned response
+												SPREADSHEET_ID, 		// Spreadsheet ID to update
+												&updateArr); 			// Array of data to update
+
+		// updateResponse.toString(Serial, true);
+		Serial.print("Free heap: ");
+		Serial.println(ESP.getFreeHeap());
+		Serial.print("Number of rows written: ");
+		Serial.println(numRowWritten);
+		Serial.println();
+
+		delay(DELAY_PER_SEND);
 	}
 
-	// Updating MSE
-	String updateMSECol = sheetName;
-	updateMSECol.concat("!CX");
-	updateMSECol.concat(String(currRowNumber));
-	updateMSE.add("range", updateMSECol);
-	updateMSE.add("majorDimension", "ROWS");
-	updateMSE.set("values/[0]/[0]", MSE);
-
-	// To update latest row number
-	String updateCurrentRowRange = sheetName;
-	updateCurrentRowRange.concat("!A2");
-	updateCurrentRow.add("range", updateCurrentRowRange);
-	updateCurrentRow.add("majorDimension", "ROWS");
-	updateCurrentRow.set("values/[0]/[0]", currRowNumber);
-
-	// Appending data + row number to update all at once
-	FirebaseJsonArray updateArr;
-	updateArr.add(updateCurrentRow);
-	updateArr.add(updateOutput);
-	updateArr.add(updateMSE);
-
-	bool success = GSheet.values.batchUpdate(&updateResponse, 		// Returned response
-											SPREADSHEET_ID, 		// Spreadsheet ID to update
-											&updateArr); 			// Array of data to update
-
-	// updateResponse.toString(Serial, true);
-	Serial.println();
+	Serial.printf("Current row number: %d\n", currRowNumber);
+	Serial.printf("Delay for %d seconds to prevent calling API too frequently...\n", DELAY_PER_SAMPLE);
+	delay(DELAY_PER_SAMPLE);
 }
 
 // Set up the ESP32's environment.
@@ -232,6 +344,7 @@ void setup() {
 	I2Cone.setClock(1000000);
 	delay(200);
 
+	// **************** MPU6050 setup ****************
 	// Try to initialize!
 	if (!mpu.begin()) {
 		Serial.println("Failed to find MPU6050 chip");
@@ -302,7 +415,9 @@ void setup() {
 
 	Serial.println("");
 	delay(100);
+	// **************** End of MPU6050 setup ****************
 
+	// **************** Sparkfun LIS2DH12 setup ****************
 	// if (accelVert.begin(0x18, I2Cone) == false) {
 	// 	Serial.println("Accelerometer 1 not detected. Check address jumper and wiring. Freezing...");
 	// 	while (1)
@@ -349,7 +464,8 @@ void setup() {
 
 	// Serial.printf("Vertical calibration = \"%s\", \"%s\", \"%s\"\n", String(offsetXVert), String(offsetYVert), String(offsetZVert));
 	// Serial.printf("Horizontal calibration = \"%s\", \"%s\", \"%s\"\n", String(offsetXHori), String(offsetYHori), String(offsetZHori));
-	delay(2000);
+	// delay(2000);
+	// ********** End of Sparkfun LIS2DH12 setup **********
 
 	// accelVert Timer setup
 	acc_timer = timerBegin(0, 80, true);                   // Begin timer with 1 MHz frequency (80MHz/80)
@@ -359,40 +475,40 @@ void setup() {
 	timerAlarmEnable(acc_timer);
 
 	// ********************** Loading of AR Model ************************
-	Serial.println("Loading Tensorflow model....");
-	AR_model = tflite::GetModel(AR_model_fullint_quantized_tflite);
-	Serial.println("AR model loaded!");
+	// Serial.println("Loading Tensorflow model....");
+	// AR_model = tflite::GetModel(AR_model_fullint_quantized_tflite);
+	// Serial.println("AR model loaded!");
 
-	// Define ops resolver and error reporting
-	static tflite::AllOpsResolver AR_resolver;
-	Serial.println("Resolver loaded!");
+	// // Define ops resolver and error reporting
+	// static tflite::AllOpsResolver AR_resolver;
+	// Serial.println("Resolver loaded!");
 
-	static tflite::ErrorReporter* AR_error_reporter;
-	static tflite::MicroErrorReporter AR_micro_error;
-	AR_error_reporter = &AR_micro_error;
-	Serial.println("Error reporter loaded!");
+	// static tflite::ErrorReporter* AR_error_reporter;
+	// static tflite::MicroErrorReporter AR_micro_error;
+	// AR_error_reporter = &AR_micro_error;
+	// Serial.println("Error reporter loaded!");
 
-	// Instantiate the interpreter 
-	static tflite::MicroInterpreter AR_static_interpreter(
-		AR_model, AR_resolver, AR_tensor_pool, AR_tensor_pool_size, AR_error_reporter
-	);
+	// // Instantiate the interpreter 
+	// static tflite::MicroInterpreter AR_static_interpreter(
+	// 	AR_model, AR_resolver, AR_tensor_pool, AR_tensor_pool_size, AR_error_reporter
+	// );
 
-	AR_interpreter = &AR_static_interpreter;
-	Serial.println("Interpreter loaded!");
+	// AR_interpreter = &AR_static_interpreter;
+	// Serial.println("Interpreter loaded!");
 
-	// Allocate the the model's tensors in the memory pool that was created.
-	Serial.println("Allocating tensors to memory pool");
-	if(AR_interpreter->AllocateTensors() != kTfLiteOk) {
-		Serial.printf("Model provided is schema version %d not equal to supported version %d.\n",
-                             AR_model->version(), TFLITE_SCHEMA_VERSION);
-		Serial.println("There was an error allocating the memory...ooof");
-		return;
-	}
+	// // Allocate the the model's tensors in the memory pool that was created.
+	// Serial.println("Allocating tensors to memory pool");
+	// if(AR_interpreter->AllocateTensors() != kTfLiteOk) {
+	// 	Serial.printf("Model provided is schema version %d not equal to supported version %d.\n",
+    //                          AR_model->version(), TFLITE_SCHEMA_VERSION);
+	// 	Serial.println("There was an error allocating the memory...ooof");
+	// 	return;
+	// }
 
-	// Define input and output nodes
-	AR_input = AR_interpreter->input(0);
-	AR_output = AR_interpreter->output(0);
-	Serial.println("Input and output nodes loaded!");
+	// // Define input and output nodes
+	// AR_input = AR_interpreter->input(0);
+	// AR_output = AR_interpreter->output(0);
+	// Serial.println("Input and output nodes loaded!");
 
 	// ********************** Google Sheets portion ************************
 	GSheet.printf("ESP Google Sheet Client v%s\n\n", ESP_GOOGLE_SHEET_CLIENT_VERSION);
@@ -425,7 +541,7 @@ void setup() {
     GSheet.setPrerefreshSeconds(10 * 60);
 
     // Begin the access token generation for Google API authentication
-    GSheet.begin(CLIENT_EMAIL, PROJECT_ID, PRIVATE_KEY);
+    GSheet.begin(CLIENT_EMAIL, PROJECT_ID, GOOGLESHEETS_PRIVATE_KEY);
 
 	// Get the current row number
 	FirebaseJson response;
@@ -433,7 +549,10 @@ void setup() {
 	String rowNumberCol = SHEET_NAME;
 	rowNumberCol.concat("!A2");
 
-	bool success = GSheet.values.get(&response /* returned response */, SPREADSHEET_ID /* spreadsheet Id to read */, rowNumberCol /* range to read */);
+	bool success = GSheet.values.get(&response, 		/* returned response */
+									SPREADSHEET_ID, 	/* spreadsheet Id to read */
+									rowNumberCol 		/* range to read */
+									);
 	// response.toString(Serial, true); // To view the entire response
 	Serial.println();
 	response.get(data, "values/[0]/[0]");
@@ -446,35 +565,49 @@ void setup() {
 	// Get the model threshold value
 	rowNumberCol = SHEET_NAME;
 	rowNumberCol.concat("!B2");
-	success = GSheet.values.get(&response /* returned response */, SPREADSHEET_ID /* spreadsheet Id to read */, rowNumberCol /* range to read */);
+	success = GSheet.values.get(&response, 			/* returned response */
+								SPREADSHEET_ID, 	/* spreadsheet Id to read */
+								rowNumberCol 		/* range to read */
+								);
 	// response.toString(Serial, true); // To view the entire response
 	Serial.println();
 	response.get(data, "values/[0]/[0]");
 	THRESHOLD = data.to<double>();
 	Serial.printf("Threshold: %f\n", THRESHOLD);
+
+	// Init and get the time
+	configTime(gmtOffset_sec, daylightOffset_sec, ntpServer);
 }
 
 
 // Logic loop for taking user input and outputting the FFT
 void loop() {
 	// ********************** Accelerometer portion ************************
+	// **** MPU setup ****
 	sensors_event_t a, g, temp;
 	mpu.getEvent(&a, &g, &temp);
+	// **** End of MPU setup ****
+
+	if (currRowNumber >= lastRow) {
+		Serial.println("Checking if can rewrite in 5 mins...");
+		delay(1000 * 60 * 5); // Delay for 5mins
+		ESP.restart();
+	}
 
 	// Print accelVert values only if new data is available
-	if (millis() - acc_timechecker >= 1000 && accelYVecVert.size() == 100) {
+	if (millis() - acc_timechecker >= 1000 && accelYVecVert.size() == NUM_PER_SAMPLE) {
 
 		// Normalise the vector values
-		for (int i = 0; i < accelXVecVert.size(); i++) {
-			// accelXVecVert[i] = (accelXVecVert[i] - minAccelXVert) / (maxAccelXVert - minAccelXVert);
-			accelYVecVert[i] = (accelYVecVert[i] - minAccelYVert) / (maxAccelYVert - minAccelYVert);
-			// accelZVecVert[i] = (accelZVecVert[i] - minAccelZVert) / (maxAccelZVert - minAccelZVert);
-		}
-		Serial.println("Done normalising vector");
-		Serial.print("Max Y: ");
-		Serial.println(maxAccelYVert);
-		Serial.print("Min Y: ");
-		Serial.println(minAccelYVert);
+		// for (int i = 0; i < accelXVecVert.size(); i++) {
+		// 	accelXVecVert[i] = (accelXVecVert[i] - minAccelXVert) / (maxAccelXVert - minAccelXVert);
+		// 	accelYVecVert[i] = (accelYVecVert[i] - minAccelYVert) / (maxAccelYVert - minAccelYVert);
+		// 	accelZVecVert[i] = (accelZVecVert[i] - minAccelZVert) / (maxAccelZVert - minAccelZVert);
+		// }
+		// Serial.println("Done normalising vector");
+		// Serial.print("Max Y: ");
+		// Serial.println(maxAccelYVert);
+		// Serial.print("Min Y: ");
+		// Serial.println(minAccelYVert);
 
 		// for (int i = 0; i < accelXVecVert.size(); i++)
 		// {
@@ -493,18 +626,17 @@ void loop() {
 		// }
 
 		Serial.printf("Number of samples Vertical: %s\n", String(accelYVecVert.size()));
-		// Serial.printf("Number of samples Horizontal: %s\n", String(accelXVecHori.size()));
-		double MSE = getARInference(accelYVecVert);
-		sendGoogleSheets(accelYVecVert, currRowNumber, lastRow, MSE, SHEET_NAME);
-		currRowNumber++;
+		Serial.printf("Number of samples Horizontal: %s\n", String(accelXVecHori.size()));
+		// double MSE = getARInference(accelYVecVert);
+		sendAllDataGoogleSheets();
 
 		accelXVecVert.clear();
 		accelYVecVert.clear();
 		accelZVecVert.clear();
 
-		// accelXVecHori.clear();
-		// accelYVecHori.clear();
-		// accelZVecHori.clear();
+		accelXVecHori.clear();
+		accelYVecHori.clear();
+		accelZVecHori.clear();
 
 		// Reset normalizing values
 		maxAccelXVert = -10e9;
@@ -518,33 +650,36 @@ void loop() {
 		acc_timechecker = millis();
 	}
 
-	if (isAccTimerTriggered && (accelYVecVert.size() < 100)) {
+	if (isAccTimerTriggered && (accelYVecVert.size() < NUM_PER_SAMPLE)) {
 		isAccTimerTriggered = false;
-		float y_value = a.acceleration.y;
+		
+		// ********** MPU6050 **********
+		// float y_value = a.acceleration.y;
 		accelXVecVert.push_back(a.acceleration.x);
+		accelXVecHori.push_back(a.acceleration.x);
+
+		accelYVecVert.push_back(a.acceleration.y);
+		accelYVecHori.push_back(a.acceleration.y);
+
+		accelZVecVert.push_back(a.acceleration.z);
+		accelZVecHori.push_back(a.acceleration.z);
+
+		// For normalizing the accelerometer data
+		// if (y_value > maxAccelYVert) {
+		// 	maxAccelYVert = y_value;
+		// }
+		// if (y_value < minAccelYVert) {
+		// 	minAccelYVert = y_value;
+		// }
+
+		// ********** Sparkfun LIS2DH12 **********
 		// accelXVecVert.push_back(accelVert.getX() - offsetXVert);
 		// accelXVecHori.push_back(accelHori.getX() - offsetXHori);
 
-		accelYVecVert.push_back(y_value);
 		// accelYVecVert.push_back(accelVert.getY() - offsetYVert);
 		// accelYVecHori.push_back(accelHori.getY() - offsetYHori);
 
-		accelZVecVert.push_back(a.acceleration.z);
 		// accelZVecVert.push_back(accelVert.getZ() - offsetZVert);
 		// accelZVecHori.push_back(accelHori.getZ() - offsetZHori);
-
-		// For normalizing the accelerometer data
-		if (y_value > maxAccelYVert) {
-			maxAccelYVert = y_value;
-		}
-		if (y_value < minAccelYVert) {
-			minAccelYVert = y_value;
-		}
-	}
-
-	if (currRowNumber >= lastRow) {
-		Serial.println("Done with testing, putting ESP32 to deepsleep...");
-
-		ESP.deepSleep(UINT32_MAX);
 	}
 }
