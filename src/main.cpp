@@ -22,10 +22,10 @@ limitations under the License.
 #include "tensorflow/lite/micro/micro_interpreter.h"
 #include "tensorflow/lite/schema/schema_generated.h"
 #include "AR_model.h"
-// #include "SparkFun_LIS2DH12.h"
-// #include "DFRobot_MLX90614.h"
-#include <Adafruit_MPU6050.h>
-#include <Adafruit_Sensor.h>
+#include "SparkFun_LIS2DH12.h"
+#include "DFRobot_MLX90614.h"
+// #include <Adafruit_MPU6050.h>
+// #include <Adafruit_Sensor.h>
 #include <Arduino.h>
 #include <WiFi.h>
 #include <ESP_Google_Sheet_Client.h>
@@ -76,14 +76,14 @@ float minAccelYVert = 10e9;
 float maxAccelZVert = -10e9;
 float minAccelZVert = 10e9;
 
-// SPARKFUN_LIS2DH12 accelVert; // Create instance
-// SPARKFUN_LIS2DH12 accelHori; // Create instance
-Adafruit_MPU6050 mpu;
+SPARKFUN_LIS2DH12 accelVert; // Create instance
+SPARKFUN_LIS2DH12 accelHori; // Create instance
+// Adafruit_MPU6050 mpu;
 
 TwoWire I2Cone = TwoWire(0);
-// TwoWire I2Ctwo = TwoWire(1);
+TwoWire I2Ctwo = TwoWire(1);
 
-// DFRobot_MLX90614_I2C sensor(0x5A, &I2Ctwo); // instantiate an object to drive the temp sensor
+DFRobot_MLX90614_I2C sensor(0x5A, &I2Ctwo); // instantiate an object to drive the temp sensor
 
 // For current sensor
 const int ACPin = 35;      // set arduino signal read pin
@@ -220,6 +220,37 @@ double getARInference(vector<float> accelYVecVert) {
 }
 
 // **************** Google Sheets functions ****************
+// To update new offset values obtained from calibration to Google Sheets
+void sendNewOffsets() {
+	FirebaseJson updateOffset;
+	FirebaseJson updateResponse;
+
+	// Updating of offset values
+	String updateOffsetCol = SHEET_NAME;
+	updateOffsetCol.concat("!C4:H4");
+	updateOffset.add("range", updateOffsetCol);
+	updateOffset.add("majorDimension", "ROWS");
+	updateOffset.set("values/[0]/[0]", offsetXVert);
+	updateOffset.set("values/[0]/[1]", offsetYVert);
+	updateOffset.set("values/[0]/[2]", offsetZVert);
+	updateOffset.set("values/[0]/[3]", offsetXHori);
+	updateOffset.set("values/[0]/[4]", offsetYHori);
+	updateOffset.set("values/[0]/[5]", offsetZHori);
+
+	bool successOffset = GSheet.values.update(&updateResponse, 		// Returned response
+											SPREADSHEET_ID, 		// Spreadsheet ID to update
+											updateOffsetCol, 		// Range of data to update
+											&updateOffset); 		// Data to update
+
+	Serial.println();
+	updateResponse.toString(Serial, true);
+	Serial.print("Free heap: ");
+	Serial.println(ESP.getFreeHeap());
+	Serial.println("New offsets sent to Google Sheets!");
+	Serial.println();
+	delay(1000);
+}
+
 void googleSheetsSetup() {
 	// *********** Setting up of Google Sheets ***********
 	GSheet.printf("ESP Google Sheet Client v%s\n\n", ESP_GOOGLE_SHEET_CLIENT_VERSION);
@@ -253,6 +284,9 @@ void googleSheetsSetup() {
 
     // Begin the access token generation for Google API authentication
     GSheet.begin(CLIENT_EMAIL, PROJECT_ID, GOOGLESHEETS_PRIVATE_KEY);
+
+	// Send new offsets to Google Sheets before reading old offsets
+	sendNewOffsets();
 
 	/*
 	 * Get config details from row 2
@@ -309,37 +343,6 @@ void googleSheetsSetup() {
 	delay(1000);
 }
 
-// To update new offset values obtained from calibration to Google Sheets
-void sendNewOffsets() {
-	FirebaseJson updateOffset;
-	FirebaseJson updateResponse;
-
-	// Updating of offset values
-	String updateOffsetCol = SHEET_NAME;
-	updateOffsetCol.concat("!C4:H4");
-	updateOffset.add("range", updateOffsetCol);
-	updateOffset.add("majorDimension", "ROWS");
-	updateOffset.set("values/[0]/[0]", offsetXVert);
-	updateOffset.set("values/[0]/[1]", offsetYVert);
-	updateOffset.set("values/[0]/[2]", offsetZVert);
-	updateOffset.set("values/[0]/[3]", offsetXHori);
-	updateOffset.set("values/[0]/[4]", offsetYHori);
-	updateOffset.set("values/[0]/[5]", offsetZHori);
-
-	bool successOffset = GSheet.values.update(&updateResponse, 		// Returned response
-											SPREADSHEET_ID, 		// Spreadsheet ID to update
-											updateOffsetCol, 		// Range of data to update
-											&updateOffset); 		// Data to update
-
-	Serial.println();
-	updateResponse.toString(Serial, true);
-	Serial.print("Free heap: ");
-	Serial.println(ESP.getFreeHeap());
-	Serial.println("New offsets sent to Google Sheets!");
-	Serial.println();
-	delay(1000);
-}
-
 // For sending data to Google sheets
 void sendAllDataGoogleSheets() {
 	FirebaseJson updateTime;
@@ -376,13 +379,13 @@ void sendAllDataGoogleSheets() {
 											&updateTime); 			// Data to update
 
 	// Updating of sensor values
-	// float ambientTemp = sensor.getAmbientTempCelsius();
-	// float objectTemp = sensor.getObjectTempCelsius();
-	// float current = readACCurrentValue();
+	float ambientTemp = sensor.getAmbientTempCelsius();
+	float objectTemp = sensor.getObjectTempCelsius();
+	float current = readACCurrentValue();
 
-	float ambientTemp = 0.0;
-	float objectTemp = 0.0;
-	float current = 0.0;
+	// float ambientTemp = 0.0;
+	// float objectTemp = 0.0;
+	// float current = 0.0;
 
 	int numRowWritten = 0;
 
@@ -499,139 +502,139 @@ void setup() {
 	delay(200);
 
 	// **************** Temperature sensor setup **************** 
-	// I2Ctwo.begin(16, 17);
-	// I2Ctwo.setClock(100000);
-	// delay(200);
+	I2Ctwo.begin(16, 17);
+	I2Ctwo.setClock(100000);
+	delay(200);
 
 	// Init the temperature sensor
-	// while (NO_ERR != sensor.begin())
-	// {
-	// 	Serial.println("Communication with temperature sensor failed, please check connection");
-	// 	delay(3000);
-	// }
-	// Serial.println("Temperature sensor init successful!");
+	while (NO_ERR != sensor.begin())
+	{
+		Serial.println("Communication with temperature sensor failed, please check connection");
+		delay(3000);
+	}
+	Serial.println("Temperature sensor init successful!");
 
 	// **************** MPU6050 setup ****************
-	// Try to initialize!
-	if (!mpu.begin()) {
-		Serial.println("Failed to find MPU6050 chip");
-		while (1) {
-		delay(10);
-		}
-	}
-	Serial.println("MPU6050 Found!");
+	// // Try to initialize!
+	// if (!mpu.begin()) {
+	// 	Serial.println("Failed to find MPU6050 chip");
+	// 	while (1) {
+	// 	delay(10);
+	// 	}
+	// }
+	// Serial.println("MPU6050 Found!");
 
-	mpu.setAccelerometerRange(MPU6050_RANGE_8_G);
-	Serial.print("Accelerometer range set to: ");
-	switch (mpu.getAccelerometerRange()) {
-	case MPU6050_RANGE_2_G:
-		Serial.println("+-2G");
-		break;
-	case MPU6050_RANGE_4_G:
-		Serial.println("+-4G");
-		break;
-	case MPU6050_RANGE_8_G:
-		Serial.println("+-8G");
-		break;
-	case MPU6050_RANGE_16_G:
-		Serial.println("+-16G");
-		break;
-	}
-	mpu.setGyroRange(MPU6050_RANGE_500_DEG);
-	Serial.print("Gyro range set to: ");
-	switch (mpu.getGyroRange()) {
-	case MPU6050_RANGE_250_DEG:
-		Serial.println("+- 250 deg/s");
-		break;
-	case MPU6050_RANGE_500_DEG:
-		Serial.println("+- 500 deg/s");
-		break;
-	case MPU6050_RANGE_1000_DEG:
-		Serial.println("+- 1000 deg/s");
-		break;
-	case MPU6050_RANGE_2000_DEG:
-		Serial.println("+- 2000 deg/s");
-		break;
-	}
+	// mpu.setAccelerometerRange(MPU6050_RANGE_8_G);
+	// Serial.print("Accelerometer range set to: ");
+	// switch (mpu.getAccelerometerRange()) {
+	// case MPU6050_RANGE_2_G:
+	// 	Serial.println("+-2G");
+	// 	break;
+	// case MPU6050_RANGE_4_G:
+	// 	Serial.println("+-4G");
+	// 	break;
+	// case MPU6050_RANGE_8_G:
+	// 	Serial.println("+-8G");
+	// 	break;
+	// case MPU6050_RANGE_16_G:
+	// 	Serial.println("+-16G");
+	// 	break;
+	// }
+	// mpu.setGyroRange(MPU6050_RANGE_500_DEG);
+	// Serial.print("Gyro range set to: ");
+	// switch (mpu.getGyroRange()) {
+	// case MPU6050_RANGE_250_DEG:
+	// 	Serial.println("+- 250 deg/s");
+	// 	break;
+	// case MPU6050_RANGE_500_DEG:
+	// 	Serial.println("+- 500 deg/s");
+	// 	break;
+	// case MPU6050_RANGE_1000_DEG:
+	// 	Serial.println("+- 1000 deg/s");
+	// 	break;
+	// case MPU6050_RANGE_2000_DEG:
+	// 	Serial.println("+- 2000 deg/s");
+	// 	break;
+	// }
 
-	mpu.setFilterBandwidth(MPU6050_BAND_5_HZ);
-	Serial.print("Filter bandwidth set to: ");
-	switch (mpu.getFilterBandwidth()) {
-	case MPU6050_BAND_260_HZ:
-		Serial.println("260 Hz");
-		break;
-	case MPU6050_BAND_184_HZ:
-		Serial.println("184 Hz");
-		break;
-	case MPU6050_BAND_94_HZ:
-		Serial.println("94 Hz");
-		break;
-	case MPU6050_BAND_44_HZ:
-		Serial.println("44 Hz");
-		break;
-	case MPU6050_BAND_21_HZ:
-		Serial.println("21 Hz");
-		break;
-	case MPU6050_BAND_10_HZ:
-		Serial.println("10 Hz");
-		break;
-	case MPU6050_BAND_5_HZ:
-		Serial.println("5 Hz");
-		break;
-	}
+	// mpu.setFilterBandwidth(MPU6050_BAND_5_HZ);
+	// Serial.print("Filter bandwidth set to: ");
+	// switch (mpu.getFilterBandwidth()) {
+	// case MPU6050_BAND_260_HZ:
+	// 	Serial.println("260 Hz");
+	// 	break;
+	// case MPU6050_BAND_184_HZ:
+	// 	Serial.println("184 Hz");
+	// 	break;
+	// case MPU6050_BAND_94_HZ:
+	// 	Serial.println("94 Hz");
+	// 	break;
+	// case MPU6050_BAND_44_HZ:
+	// 	Serial.println("44 Hz");
+	// 	break;
+	// case MPU6050_BAND_21_HZ:
+	// 	Serial.println("21 Hz");
+	// 	break;
+	// case MPU6050_BAND_10_HZ:
+	// 	Serial.println("10 Hz");
+	// 	break;
+	// case MPU6050_BAND_5_HZ:
+	// 	Serial.println("5 Hz");
+	// 	break;
+	// }
 
-	Serial.println("");
-	delay(100);
+	// Serial.println("");
+	// delay(100);
 	// **************** End of MPU6050 setup ****************
 
 	// **************** Sparkfun LIS2DH12 setup ****************
-	// if (accelVert.begin(0x18, I2Cone) == false) {
-	// 	Serial.println("Accelerometer 1 not detected. Check address jumper and wiring. Freezing...");
-	// 	while (1)
-	// 	;
-	// }
+	if (accelVert.begin(0x18, I2Cone) == false) {
+		Serial.println("Accelerometer 1 not detected. Check address jumper and wiring. Freezing...");
+		while (1)
+		;
+	}
 
-	// if (accelHori.begin(0x19, I2Cone) == false) {
-	// 	Serial.println("Accelerometer 2 not detected. Check address jumper and wiring. Freezing...");
-	// 	while (1)
-	// 	;
-	// };
+	if (accelHori.begin(0x19, I2Cone) == false) {
+		Serial.println("Accelerometer 2 not detected. Check address jumper and wiring. Freezing...");
+		while (1)
+		;
+	};
 
-	// accelVert.setScale(LIS2DH12_2g);                              // Set full-scale range to 2g
-	// accelVert.setMode(LIS2DH12_HR_12bit);                         // Set operating mode to low power
-	// accelVert.setDataRate(LIS2DH12_ODR_5kHz376_LP_1kHz344_NM_HP); // Set data rate to 1Khz Hz
+	accelVert.setScale(LIS2DH12_2g);                              // Set full-scale range to 2g
+	accelVert.setMode(LIS2DH12_HR_12bit);                         // Set operating mode to low power
+	accelVert.setDataRate(LIS2DH12_ODR_5kHz376_LP_1kHz344_NM_HP); // Set data rate to 1Khz Hz
 
-	// accelHori.setScale(LIS2DH12_2g);                              // Set full-scale range to 2g
-	// accelHori.setMode(LIS2DH12_HR_12bit);                         // Set operating mode to low power
-	// accelHori.setDataRate(LIS2DH12_ODR_5kHz376_LP_1kHz344_NM_HP); // Set data rate to 1Khz Hz
+	accelHori.setScale(LIS2DH12_2g);                              // Set full-scale range to 2g
+	accelHori.setMode(LIS2DH12_HR_12bit);                         // Set operating mode to low power
+	accelHori.setDataRate(LIS2DH12_ODR_5kHz376_LP_1kHz344_NM_HP); // Set data rate to 1Khz Hz
 
-	// Serial.println("Calibrating accelerometer 1. Do not move the board.");
-	// for (int i = 0; i < 1000; i++) {
-	// 	offsetXVert += accelVert.getX();
-	// 	offsetYVert += accelVert.getY();
-	// 	offsetZVert += accelVert.getZ();
-	// 	delay(2);
-	// }
+	Serial.println("Calibrating accelerometer 1. Do not move the board.");
+	for (int i = 0; i < 1000; i++) {
+		offsetXVert += accelVert.getX();
+		offsetYVert += accelVert.getY();
+		offsetZVert += accelVert.getZ();
+		delay(2);
+	}
 
-	// Serial.println("Calibrating accelerometer 2. Do not move the board.");
-	// for (int i = 0; i < 1000; i++) {
-	// 	offsetXHori += accelHori.getX();
-	// 	offsetYHori += accelHori.getY();
-	// 	offsetZHori += accelHori.getZ();
-	// 	delay(2);
-	// }
+	Serial.println("Calibrating accelerometer 2. Do not move the board.");
+	for (int i = 0; i < 1000; i++) {
+		offsetXHori += accelHori.getX();
+		offsetYHori += accelHori.getY();
+		offsetZHori += accelHori.getZ();
+		delay(2);
+	}
 
-	// offsetXVert /= 1000.0;
-	// offsetYVert /= 1000.0;
-	// offsetZVert /= 1000.0;
+	offsetXVert /= 1000.0;
+	offsetYVert /= 1000.0;
+	offsetZVert /= 1000.0;
 
-	// offsetXHori /= 1000.0;
-	// offsetYHori /= 1000.0;
-	// offsetZHori /= 1000.0;
+	offsetXHori /= 1000.0;
+	offsetYHori /= 1000.0;
+	offsetZHori /= 1000.0;
 
-	// Serial.printf("Vertical calibration = \"%s\", \"%s\", \"%s\"\n", String(offsetXVert), String(offsetYVert), String(offsetZVert));
-	// Serial.printf("Horizontal calibration = \"%s\", \"%s\", \"%s\"\n", String(offsetXHori), String(offsetYHori), String(offsetZHori));
-	// delay(2000);
+	Serial.printf("Vertical calibration = \"%s\", \"%s\", \"%s\"\n", String(offsetXVert), String(offsetYVert), String(offsetZVert));
+	Serial.printf("Horizontal calibration = \"%s\", \"%s\", \"%s\"\n", String(offsetXHori), String(offsetYHori), String(offsetZHori));
+	delay(2000);
 	// ********** End of Sparkfun LIS2DH12 setup **********
 
 	// ********** Timer Interrupt setup **********
@@ -680,7 +683,6 @@ void setup() {
 
 	// ********************** Google Sheets portion ************************
 	googleSheetsSetup();
-	sendNewOffsets();
 
 	// Init and get the time
 	configTime(gmtOffset_sec, daylightOffset_sec, ntpServer);
@@ -691,8 +693,8 @@ void setup() {
 void loop() {
 	// ********************** Accelerometer portion ************************
 	// **** MPU setup ****
-	sensors_event_t a, g, temp;
-	mpu.getEvent(&a, &g, &temp);
+	// sensors_event_t a, g, temp;
+	// mpu.getEvent(&a, &g, &temp);
 	// **** End of MPU setup ****
 
 	while (currRowNumber >= lastRow) {
@@ -765,32 +767,32 @@ void loop() {
 		isAccTimerTriggered = false;
 		
 		// ********** MPU6050 **********
-		// float y_value = a.acceleration.y;
-		accelXVecVert.push_back(a.acceleration.x);
-		accelXVecHori.push_back(a.acceleration.x);
+		// // float y_value = a.acceleration.y;
+		// accelXVecVert.push_back(a.acceleration.x);
+		// accelXVecHori.push_back(a.acceleration.x);
 
-		accelYVecVert.push_back(a.acceleration.y);
-		accelYVecHori.push_back(a.acceleration.y);
+		// accelYVecVert.push_back(a.acceleration.y);
+		// accelYVecHori.push_back(a.acceleration.y);
 
-		accelZVecVert.push_back(a.acceleration.z);
-		accelZVecHori.push_back(a.acceleration.z);
+		// accelZVecVert.push_back(a.acceleration.z);
+		// accelZVecHori.push_back(a.acceleration.z);
 
-		// // For normalizing the accelerometer data
-		// if (y_value > maxAccelYVert) {
-		// 	maxAccelYVert = y_value;
-		// }
-		// if (y_value < minAccelYVert) {
-		// 	minAccelYVert = y_value;
-		// }
+		// // // For normalizing the accelerometer data
+		// // if (y_value > maxAccelYVert) {
+		// // 	maxAccelYVert = y_value;
+		// // }
+		// // if (y_value < minAccelYVert) {
+		// // 	minAccelYVert = y_value;
+		// // }
 
 		// ********** Sparkfun LIS2DH12 **********
-		// accelXVecVert.push_back(accelVert.getX() - offsetXVert);
-		// accelXVecHori.push_back(accelHori.getX() - offsetXHori);
+		accelXVecVert.push_back(accelVert.getX() - offsetXVert);
+		accelXVecHori.push_back(accelHori.getX() - offsetXHori);
 
-		// accelYVecVert.push_back(accelVert.getY() - offsetYVert);
-		// accelYVecHori.push_back(accelHori.getY() - offsetYHori);
+		accelYVecVert.push_back(accelVert.getY() - offsetYVert);
+		accelYVecHori.push_back(accelHori.getY() - offsetYHori);
 
-		// accelZVecVert.push_back(accelVert.getZ() - offsetZVert);
-		// accelZVecHori.push_back(accelHori.getZ() - offsetZHori);
+		accelZVecVert.push_back(accelVert.getZ() - offsetZVert);
+		accelZVecHori.push_back(accelHori.getZ() - offsetZHori);
 	}
 }
