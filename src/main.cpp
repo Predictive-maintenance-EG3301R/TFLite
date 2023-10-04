@@ -22,6 +22,8 @@ limitations under the License.
 #include "tensorflow/lite/micro/micro_interpreter.h"
 #include "tensorflow/lite/schema/schema_generated.h"
 #include "AR_model.h"
+#include <Wire.h>
+#include <SPI.h>
 #include "SparkFun_LIS2DH12.h"
 #include "DFRobot_MLX90614.h"
 // #include <Adafruit_MPU6050.h>
@@ -81,9 +83,9 @@ SPARKFUN_LIS2DH12 accelHori; // Create instance
 // Adafruit_MPU6050 mpu;
 
 TwoWire I2Cone = TwoWire(0);
-TwoWire I2Ctwo = TwoWire(1);
+// TwoWire I2Ctwo = TwoWire(1);
 
-DFRobot_MLX90614_I2C sensor(0x5A, &I2Ctwo); // instantiate an object to drive the temp sensor
+// DFRobot_MLX90614_I2C sensor(0x5A, &I2Ctwo); // instantiate an object to drive the temp sensor
 
 // For current sensor
 const int ACPin = 35;      // set arduino signal read pin
@@ -379,12 +381,12 @@ void sendAllDataGoogleSheets() {
 											&updateTime); 			// Data to update
 
 	// Updating of sensor values
-	float ambientTemp = sensor.getAmbientTempCelsius();
-	float objectTemp = sensor.getObjectTempCelsius();
+	// float ambientTemp = sensor.getAmbientTempCelsius();
+	// float objectTemp = sensor.getObjectTempCelsius();
 	float current = readACCurrentValue();
 
-	// float ambientTemp = 0.0;
-	// float objectTemp = 0.0;
+	float ambientTemp = 0.0;
+	float objectTemp = 0.0;
 	// float current = 0.0;
 
 	int numRowWritten = 0;
@@ -502,17 +504,9 @@ void setup() {
 	delay(200);
 
 	// **************** Temperature sensor setup **************** 
-	I2Ctwo.begin(16, 17);
-	I2Ctwo.setClock(100000);
-	delay(200);
-
-	// Init the temperature sensor
-	while (NO_ERR != sensor.begin())
-	{
-		Serial.println("Communication with temperature sensor failed, please check connection");
-		delay(3000);
-	}
-	Serial.println("Temperature sensor init successful!");
+	// I2Ctwo.begin(16, 17);
+	// I2Ctwo.setClock(1000000);
+	// delay(200);
 
 	// **************** MPU6050 setup ****************
 	// // Try to initialize!
@@ -599,6 +593,14 @@ void setup() {
 		while (1)
 		;
 	};
+
+	// // Init the temperature sensor
+	// while (NO_ERR != sensor.begin())
+	// {
+	// 	Serial.println("Communication with temperature sensor failed, please check connection");
+	// 	delay(3000);
+	// }
+	// Serial.println("Temperature sensor init successful!");
 
 	accelVert.setScale(LIS2DH12_2g);                              // Set full-scale range to 2g
 	accelVert.setMode(LIS2DH12_HR_12bit);                         // Set operating mode to low power
@@ -697,14 +699,44 @@ void loop() {
 	// mpu.getEvent(&a, &g, &temp);
 	// **** End of MPU setup ****
 
-	while (currRowNumber >= lastRow) {
-		Serial.println("Checking if can rewrite in 5 mins...");
-		WiFi.disconnect();
-		digitalWrite(LED_BUILTIN, LOW);
+	if (currRowNumber >= lastRow) {
+		// When hit limit, copy over entire sheet to another copy, then restart ESP and write from first row again
+		Serial.println("Copying over entire sheet to another copy...");
+		FirebaseJson copyResponse;
+		bool copysuccess = GSheet.sheets.copyTo(&copyResponse, 		// returned response
+												SPREADSHEET_ID, 	// Spreadsheet ID to copy from
+												0, 					// Sheet ID
+												COPY_SPREADSHEET_ID	// Spreadsheet ID to copy to
+												);
 
-		// Put ESP32 to deep sleep for 5 mins before restarting
-		esp_sleep_enable_timer_wakeup(1000000ULL * 60 * 5); // 5 mins
-		esp_deep_sleep_start();
+		delay(2000);
+		// copyResponse.toString(Serial, true);
+		
+		// Write current row number = 11 to Google Sheets
+		FirebaseJson updateCurrentRow;
+		FirebaseJson updateResponse;
+		String updateCurrentRowRange = SHEET_NAME;
+		updateCurrentRowRange.concat("!A2");
+		updateCurrentRow.add("range", updateCurrentRowRange);
+		updateCurrentRow.add("majorDimension", "ROWS");
+		updateCurrentRow.set("values/[0]/[0]", 11);
+
+		bool success = GSheet.values.update(&updateResponse, 		// Returned response
+											SPREADSHEET_ID, 		// Spreadsheet ID to update
+											updateCurrentRowRange,	// Range of data to update
+											&updateCurrentRow); 	// Array of data to update
+
+		currRowNumber = 11;
+		accelXVecVert.clear();
+		accelYVecVert.clear();
+		accelZVecVert.clear();
+
+		accelXVecHori.clear();
+		accelYVecHori.clear();
+		accelZVecHori.clear();
+		// updateResponse.toString(Serial, true);
+		// Serial.println("Restarting ESP32...");
+		// ESP.restart();
 	}
 
 	// Print accelVert values only if new data is available
