@@ -1,30 +1,70 @@
-/*=============================================================================
-TensorFlow Lite Platformio Example
-
-Author: Wezley Sherman
-Referenced Authors: The TensorFlow Authors
-
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
-
-    http://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
-==============================================================================*/
-
 #include "tensorflow/lite/micro/all_ops_resolver.h"
 #include "tensorflow/lite/micro/micro_error_reporter.h"
 #include "tensorflow/lite/micro/micro_interpreter.h"
 #include "tensorflow/lite/schema/schema_generated.h"
-// #include "AR_model.h"
 #include "cnn_fullint_quantized.h"
+// #include "BlynkSimpleEsp32.h"
+#include <Wire.h>
+#include <SPI.h>
+#include "SparkFun_LIS2DH12.h"
+#include "DFRobot_MLX90614.h"
+// #include <Adafruit_MPU6050.h>
+// #include <Adafruit_Sensor.h>
 #include <Arduino.h>
 #include <WiFi.h>
+// #include <ESP_Google_Sheet_Client.h>
+#include <secrets.h>
+#include <vector>
+#include "time.h"
+
+using namespace std;
+
+//***************** Generic variables *****************
+#define RESET_TIMER 1000ULL * 60 * 60 * 24 // Reset ESP32 every 24 hours
+
+// **************** Accelerometer variables ****************
+int acc_counter = 0;
+int acc_timechecker = millis();
+volatile bool isAccTimerTriggered = false; 	// For checking if timer triggered
+int accSamplingRate = 1000;          		// Sampling rate in Hz, max is 1000Hz
+hw_timer_t *acc_timer = NULL;         		// Timer object
+
+// Offset values for the accelerometers
+float offsetXVert = 0.0;
+float offsetYVert = 0.0;
+float offsetZVert = 0.0;
+float offsetXHori = 0.0;
+float offsetYHori = 0.0;
+float offsetZHori = 0.0;
+vector<float> accelXVecVert;
+vector<float> accelYVecVert;
+vector<float> accelZVecVert;
+vector<float> accelXVecHori;
+vector<float> accelYVecHori;
+vector<float> accelZVecHori;
+
+// For normalizing the accelerometer data
+float maxAccelXVert = -10e9;
+float minAccelXVert = 10e9;
+float maxAccelYVert = -10e9;
+float minAccelYVert = 10e9;
+float maxAccelZVert = -10e9;
+float minAccelZVert = 10e9;
+
+SPARKFUN_LIS2DH12 accelVert; // Create instance
+SPARKFUN_LIS2DH12 accelHori; // Create instance
+// Adafruit_MPU6050 mpu;
+
+TwoWire I2Cone = TwoWire(0);
+
+// Interrupt handler to collect accelerometer data per 1ms
+void IRAM_ATTR onTimer() {
+  isAccTimerTriggered = true; // Indicates that the interrupt has been entered since the last time its value was changed to false
+}
+
+// **************** TF Lite variables ****************
+// Details for model to be tested
+#define AR_INPUT_SIZE 		100
 
 constexpr int CNN_tensor_pool_size = 100 * 1024;
 alignas(16) uint8_t CNN_tensor_pool[CNN_tensor_pool_size];
@@ -92,6 +132,7 @@ float user_input[5];
 void loop() { 
 	// Wait for serial input to be made available and parse it as a float
 	Serial.println("Delaying for 10sec...");
-	Serial.println("Free heap: " + String(ESP.getFreeHeap()));
+	Serial.print("Free heap: ");
+	Serial.println(String(ESP.getFreeHeap()));
 	delay(10000);
 } 
