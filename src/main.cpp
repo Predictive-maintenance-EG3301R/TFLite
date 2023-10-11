@@ -21,7 +21,7 @@ limitations under the License.
 #include "tensorflow/lite/micro/micro_error_reporter.h"
 #include "tensorflow/lite/micro/micro_interpreter.h"
 #include "tensorflow/lite/schema/schema_generated.h"
-#include "AR_model.h"
+// #include "AR_model.h"
 #include <Wire.h>
 #include <SPI.h>
 #include "SparkFun_LIS2DH12.h"
@@ -37,7 +37,7 @@ limitations under the License.
 
 using namespace std;
 
-#define NUM_PER_SEND 		40 			// Number of rows to update at once
+#define NUM_PER_SEND 		40			// Number of rows to update at once
 #define NUM_PER_SAMPLE 		1000 		// Number of data points per sample
 #define DELAY_PER_SEND		10 		// Delay between each batch of data sent to Google Sheets
 #define DELAY_PER_SAMPLE 	1000 		// Delay between each data point collected
@@ -114,28 +114,28 @@ float readACCurrentValue()
 }
 
 // Details for model to be tested
-#define AR_INPUT_SIZE 		100
+// #define AR_INPUT_SIZE 		100
 
 // For Google sheets debugging
 void tokenStatusCallback(TokenInfo info);
 
 // Create a memory pool for the nodes in the network
-constexpr int AR_tensor_pool_size = 10 * 1024;
-alignas(16) uint8_t AR_tensor_pool[AR_tensor_pool_size];
+// constexpr int AR_tensor_pool_size = 10 * 1024;
+// alignas(16) uint8_t AR_tensor_pool[AR_tensor_pool_size];
 
-// Define the model to be used
-const tflite::Model* AR_model;
+// // Define the model to be used
+// const tflite::Model* AR_model;
 
-// Define the interpreter
-tflite::MicroInterpreter* AR_interpreter;
+// // Define the interpreter
+// tflite::MicroInterpreter* AR_interpreter;
 
 #define GOOGLE_SHEETS_DELAY 0.25 	// Number of seconds between each API call to Google Sheets
 									// API limit is 300 requests per minute per project for read and write separately
 String SHEET_NAME = "Sheet1";	// Name of the sheet to be used
 
-// Variables for AR model
-float AR_user_input[AR_INPUT_SIZE];
-float recon_data[AR_INPUT_SIZE];
+// // Variables for AR model
+// float AR_user_input[AR_INPUT_SIZE];
+// float recon_data[AR_INPUT_SIZE];
 double THRESHOLD = 0;
 
 // For editing Google sheets
@@ -143,9 +143,9 @@ volatile unsigned long currRowNumber = 10;
 int lastRow = 900000;
 int numConnection = 0;
 
-// Input/Output nodes for the network
-TfLiteTensor* AR_input;
-TfLiteTensor* AR_output;
+// // Input/Output nodes for the network
+// TfLiteTensor* AR_input;
+// TfLiteTensor* AR_output;
 
 /**
  * @brief Timer used to collect data for FFT.
@@ -176,50 +176,50 @@ void tokenStatusCallback(TokenInfo info) {
     }
 }
 
-// For getting inference from AR model
-double getARInference(vector<float> accelYVecVert) {
-	// Set the input node to the user input
-	for (int i = 0; i < AR_INPUT_SIZE; i++) {
-		// FFT_input->data.f[i] = user_input[i];
-		AR_input->data.f[i] = accelYVecVert[i];
-	}
+// // For getting inference from AR model
+// double getARInference(vector<float> accelYVecVert) {
+// 	// Set the input node to the user input
+// 	for (int i = 0; i < AR_INPUT_SIZE; i++) {
+// 		// FFT_input->data.f[i] = user_input[i];
+// 		AR_input->data.f[i] = accelYVecVert[i];
+// 	}
 
-	Serial.println("Running inference on inputted data...");
+// 	Serial.println("Running inference on inputted data...");
 
-	// Run infernece on the AR input data
-	if(AR_interpreter->Invoke() != kTfLiteOk) {
-		Serial.println("There was an error invoking the AR interpreter!");
-		return -1.0;
-	}
+// 	// Run infernece on the AR input data
+// 	if(AR_interpreter->Invoke() != kTfLiteOk) {
+// 		Serial.println("There was an error invoking the AR interpreter!");
+// 		return -1.0;
+// 	}
 
-	Serial.println("Inference complete!");
+// 	Serial.println("Inference complete!");
 
-	// Save the output of the AR inference
-	for (int i = 0; i < AR_INPUT_SIZE; i++) {
-		recon_data[i] = AR_output->data.f[i];
-	}
+// 	// Save the output of the AR inference
+// 	for (int i = 0; i < AR_INPUT_SIZE; i++) {
+// 		recon_data[i] = AR_output->data.f[i];
+// 	}
 
-	// for (int i = 0; i < AR_INPUT_SIZE; i++) {
-	// 	Serial.printf("AR Output %d: %f\n", i, recon_data[i]);
-	// }
+// 	// for (int i = 0; i < AR_INPUT_SIZE; i++) {
+// 	// 	Serial.printf("AR Output %d: %f\n", i, recon_data[i]);
+// 	// }
 
-	// Calculate MSE
-	double MSE = 0.0;
-	for (int i = 0; i < AR_INPUT_SIZE; i++) {
-		double diff = AR_user_input[i] - recon_data[i];
-		MSE += diff * diff;
-	}
-	MSE /= AR_INPUT_SIZE;
+// 	// Calculate MSE
+// 	double MSE = 0.0;
+// 	for (int i = 0; i < AR_INPUT_SIZE; i++) {
+// 		double diff = AR_user_input[i] - recon_data[i];
+// 		MSE += diff * diff;
+// 	}
+// 	MSE /= AR_INPUT_SIZE;
 
-	Serial.printf("MSE: %f\n", MSE);
-	if (MSE > THRESHOLD) {
-		Serial.println("MSE > Threshold -> Unhealthy!");
-	} else {
-		Serial.println("MSE <= Threshold -> Healthy!");
-	}
+// 	Serial.printf("MSE: %f\n", MSE);
+// 	if (MSE > THRESHOLD) {
+// 		Serial.println("MSE > Threshold -> Unhealthy!");
+// 	} else {
+// 		Serial.println("MSE <= Threshold -> Healthy!");
+// 	}
 
-	return MSE;
-}
+// 	return MSE;
+// }
 
 // **************** Google Sheets functions ****************
 // To update new offset values obtained from calibration to Google Sheets
