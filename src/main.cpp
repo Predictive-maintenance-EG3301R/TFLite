@@ -340,6 +340,32 @@ void googleSheetsSetup() {
 	responseConfig.get(dataConfig, "values/[0]/[7]");
 	offsetZHori = dataConfig.to<double>();
 
+	// Use hardcoded values if unable to read in old config values
+	if (offsetXVert < 0.1 && offsetXVert > -0.1) {
+		Serial.println("Unable to read in old offsetXVert, using hardcoded value instead...");
+		offsetXVert = 68.172;
+	}
+	if (offsetYVert < 0.1 && offsetYVert > -0.1) {
+		Serial.println("Unable to read in old offsetYVert, using hardcoded value instead...");
+		offsetYVert = 3.213;
+	}
+	if (offsetZVert < 0.1 && offsetZVert > -0.1) {
+		Serial.println("Unable to read in old offsetZVert, using hardcoded value instead...");
+		offsetZVert = 1013.33801;
+	}
+	if (offsetXHori < 0.1 && offsetXHori > -0.1) {
+		Serial.println("Unable to read in old offsetXHori, using hardcoded value instead...");
+		offsetXHori = 24.436;
+	}
+	if (offsetYHori < 0.1 && offsetYHori > -0.1) {
+		Serial.println("Unable to read in old offsetYHori, using hardcoded value instead...");
+		offsetYHori = -1064.93298;
+	}
+	if (offsetZHori < 0.1 && offsetZHori > -0.1) {
+		Serial.println("Unable to read in old offsetZHori, using hardcoded value instead...");
+		offsetZHori = 28.983;
+	}
+
 	Serial.printf("Old Vertical calibration = \"%s\", \"%s\", \"%s\"\n", String(offsetXVert), String(offsetYVert), String(offsetZVert));
 	Serial.printf("Old Horizontal calibration = \"%s\", \"%s\", \"%s\"\n", String(offsetXHori), String(offsetYHori), String(offsetZHori));
 	delay(1000);
@@ -735,8 +761,8 @@ void loop() {
 		accelYVecHori.clear();
 		accelZVecHori.clear();
 		// updateResponse.toString(Serial, true);
-		// Serial.println("Restarting ESP32...");
-		// ESP.restart();
+		Serial.println("Restarting ESP32...");
+		ESP.restart();
 	}
 
 	// Print accelVert values only if new data is available
