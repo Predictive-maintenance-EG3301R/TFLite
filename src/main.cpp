@@ -416,6 +416,7 @@ void sendAllDataGoogleSheets() {
 	// float current = 0.0;
 
 	int numRowWritten = 0;
+	int num_looped = 0;
 
 	while (numRowWritten < NUM_PER_SAMPLE) { // To write to Google Sheets in batches of 40 rows
 		String dataSheetRange = SHEET_NAME;
@@ -430,32 +431,32 @@ void sendAllDataGoogleSheets() {
 			String updateXVert = "values/[";
 			updateXVert.concat(String(i));
 			updateXVert.concat("]/[0]");
-			updateOutput.set(updateXVert, accelXVecVert[i]);
+			updateOutput.set(updateXVert, accelXVecVert[i+(num_looped * NUM_PER_SEND)]);
 
 			String updateYVert = "values/[";
 			updateYVert.concat(String(i));
 			updateYVert.concat("]/[1]");
-			updateOutput.set(updateYVert, accelYVecVert[i]);
+			updateOutput.set(updateYVert, accelYVecVert[i+(num_looped * NUM_PER_SEND)]);
 
 			String updateZVert = "values/[";
 			updateZVert.concat(String(i));
 			updateZVert.concat("]/[2]");
-			updateOutput.set(updateZVert, accelZVecVert[i]);
+			updateOutput.set(updateZVert, accelZVecVert[i+(num_looped * NUM_PER_SEND)]);
 
 			String updateXHori = "values/[";
 			updateXHori.concat(String(i));
 			updateXHori.concat("]/[3]");
-			updateOutput.set(updateXHori, accelXVecHori[i]);
+			updateOutput.set(updateXHori, accelXVecHori[i+(num_looped * NUM_PER_SEND)]);
 
 			String updateYHori = "values/[";
 			updateYHori.concat(String(i));
 			updateYHori.concat("]/[4]");
-			updateOutput.set(updateYHori, accelYVecHori[i]);
+			updateOutput.set(updateYHori, accelYVecHori[i+(num_looped * NUM_PER_SEND)]);
 
 			String updateZHori = "values/[";
 			updateZHori.concat(String(i));
 			updateZHori.concat("]/[5]");
-			updateOutput.set(updateZHori, accelZVecHori[i]);
+			updateOutput.set(updateZHori, accelZVecHori[i+(num_looped * NUM_PER_SEND)]);
 
 			String updateAmbientTemp = "values/[";
 			updateAmbientTemp.concat(String(i));
@@ -484,6 +485,7 @@ void sendAllDataGoogleSheets() {
 		// To update latest row number
 		currRowNumber += NUM_PER_SEND;
 		numRowWritten += NUM_PER_SEND;
+		num_looped++;
 		String updateCurrentRowRange = SHEET_NAME;
 		updateCurrentRowRange.concat("!A2");
 		updateCurrentRow.add("range", updateCurrentRowRange);
