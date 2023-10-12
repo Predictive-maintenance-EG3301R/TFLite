@@ -21,7 +21,7 @@ limitations under the License.
 #include "tensorflow/lite/micro/micro_error_reporter.h"
 #include "tensorflow/lite/micro/micro_interpreter.h"
 #include "tensorflow/lite/schema/schema_generated.h"
-#include "cnn_fullint_quantized_model.h"
+#include "CNN_2D_model.h"
 #include <Arduino.h>
 #include <WiFi.h>
 #include <ESP_Google_Sheet_Client.h>
@@ -88,7 +88,7 @@ void setup()
 	// ********************** Loading of CNN Model ************************
 	// Load the AR model
 	Serial.println("Loading Tensorflow model....");
-	CNN_model = tflite::GetModel(cnn_fullint_quantized_tflite);
+	CNN_model = tflite::GetModel(cnn_2d_fullint_quantized_model_tflite);
 	Serial.println("CNN model loaded!");
 
 	// Define ops resolver and error reporting
@@ -155,7 +155,7 @@ void setup()
 	GSheet.setPrerefreshSeconds(10 * 60);
 
 	// Begin the access token generation for Google API authentication
-	GSheet.begin(CLIENT_EMAIL, PROJECT_ID, GOOGLESHEETS_PRIVATE_KEY);
+	GSheet.begin(TESTING_CLIENT_EMAIL, TESTING_PROJECT_ID, GOOGLESHEETS_TESTING_PRIVATE_KEY);
 }
 
 void loop()
