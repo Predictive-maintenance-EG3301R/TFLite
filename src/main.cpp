@@ -21,7 +21,7 @@ limitations under the License.
 #include "tensorflow/lite/micro/micro_error_reporter.h"
 #include "tensorflow/lite/micro/micro_interpreter.h"
 #include "tensorflow/lite/schema/schema_generated.h"
-#include "CNN_2D_model.h"
+#include "CNN_1D_model.h"
 #include <Arduino.h>
 #include <WiFi.h>
 #include <ESP_Google_Sheet_Client.h>
@@ -42,7 +42,7 @@ tflite::MicroInterpreter *CNN_interpreter;
 
 // For editing Google sheets
 volatile unsigned long rowNumber = 1;
-int lastRow = 800000;
+int lastRow = 271000;
 int numConnection = 0;
 
 // Input/Output nodes for the network
@@ -88,7 +88,7 @@ void setup()
 	// ********************** Loading of CNN Model ************************
 	// Load the AR model
 	Serial.println("Loading Tensorflow model....");
-	CNN_model = tflite::GetModel(cnn_2d_fullint_quantized_model_tflite);
+	CNN_model = tflite::GetModel(cnn_fullint_quantized_tflite);
 	Serial.println("CNN model loaded!");
 
 	// Define ops resolver and error reporting
@@ -347,12 +347,14 @@ void loop()
 													   &toUpdateArr		   /* range to update */
 		);
 
-		// updateResponse.toString(Serial, true);
-		// Serial.println();
+		updateResponse.toString(Serial, true);
+		Serial.println();
 
 		Serial.print("Free heap: ");
 		Serial.println(ESP.getFreeHeap());
 		delay(100);
+	} else {
+		esp_deep_sleep_start();
 	}
 
 	// // Set the input node to the user input
