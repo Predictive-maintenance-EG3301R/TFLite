@@ -17,11 +17,13 @@ See the License for the specific language governing permissions and
 limitations under the License.
 ==============================================================================*/
 
+#define ROW_SIZE 24 // 20 for 1d array, 24 for 2d array
+
 #include "tensorflow/lite/micro/all_ops_resolver.h"
 #include "tensorflow/lite/micro/micro_error_reporter.h"
 #include "tensorflow/lite/micro/micro_interpreter.h"
 #include "tensorflow/lite/schema/schema_generated.h"
-#include "CNN_1D_model.h"
+#include "cnn_model_fullint_vibeonly.h"
 #include <Arduino.h>
 #include <WiFi.h>
 #include <ESP_Google_Sheet_Client.h>
@@ -31,7 +33,7 @@ limitations under the License.
 void tokenStatusCallback(TokenInfo info);
 
 // Create a memory pool for the nodes in the network
-constexpr int CNN_tensor_pool_size = 80 * 1024;
+constexpr int CNN_tensor_pool_size = 60 * 1024;
 alignas(16) uint8_t CNN_tensor_pool[CNN_tensor_pool_size];
 
 // Define the model to be used
@@ -42,7 +44,7 @@ tflite::MicroInterpreter *CNN_interpreter;
 
 // For editing Google sheets
 volatile unsigned long rowNumber = 1;
-int lastRow = 271000;
+int lastRow = 620000;
 int numConnection = 0;
 
 // Input/Output nodes for the network
@@ -50,12 +52,21 @@ TfLiteTensor *CNN_input;
 TfLiteTensor *CNN_output;
 
 // Create vector to store value read in
-std::vector<float> accelXVecVert;
-std::vector<float> accelYVecVert;
-std::vector<float> accelZVecVert;
-std::vector<float> accelXVecHori;
-std::vector<float> accelYVecHori;
-std::vector<float> accelZVecHori;
+// For 1D
+// std::vector<float> accelXVecVert;
+// std::vector<float> accelYVecVert;
+// std::vector<float> accelZVecVert;
+// std::vector<float> accelXVecHori;
+// std::vector<float> accelYVecHori;
+// std::vector<float> accelZVecHori;
+
+// For 2D
+std::vector<std::vector<float>> accelXVecVert(4, std::vector<float>(24));
+std::vector<std::vector<float>> accelYVecVert(4, std::vector<float>(24));
+std::vector<std::vector<float>> accelZVecVert(4, std::vector<float>(24));
+std::vector<std::vector<float>> accelXVecHori(4, std::vector<float>(24));
+std::vector<std::vector<float>> accelYVecHori(4, std::vector<float>(24));
+std::vector<std::vector<float>> accelZVecHori(4, std::vector<float>(24));
 int num_healthy = 0;
 int num_cavitation = 0;
 int num_loosebase = 0;
@@ -88,7 +99,7 @@ void setup()
 	// ********************** Loading of CNN Model ************************
 	// Load the AR model
 	Serial.println("Loading Tensorflow model....");
-	CNN_model = tflite::GetModel(cnn_1d_fullint_quantized_model_tflite);
+	CNN_model = tflite::GetModel(cnn_model_fullint_vibeonly_tflite);
 	Serial.println("CNN model loaded!");
 
 	// Define ops resolver and error reporting
@@ -167,7 +178,7 @@ void loop()
 	if (ready && rowNumber < lastRow)
 	{
 
-		for (int a = 0; a < 5; a++)
+		for (int a = 0; a < 4; a++) // 5 for 1d array, 4 for 2d array
 		{
 			FirebaseJson response;
 			FirebaseJsonData data;
@@ -178,10 +189,10 @@ void loop()
 			String startCol = "Sheet1!B";
 			String endCol = ":G";
 			startCol.concat(String(rowNumber));
-			endCol.concat(String(rowNumber + 19));
+			endCol.concat(String(rowNumber + ROW_SIZE-1)); // +19 for 1d array, +23 for 2d array
 			startCol.concat(endCol);
 
-			rowNumber += 20;
+			rowNumber += ROW_SIZE;
 			String rangeToRead = startCol;
 
 			Serial.println("\nGet spreadsheet values from range...");
@@ -193,8 +204,9 @@ void loop()
 
 			// response.toString(Serial, true);
 			Serial.println();
+      Serial.println("Received data, processing now...");
 
-			for (int j = 0; j < 20; j++)
+			for (int j = 0; j < ROW_SIZE; j++)
 			{
 				String valueRange = "values/[";
 				valueRange.concat(String(j));
@@ -203,21 +215,37 @@ void loop()
 				response.get(data, valueRange);
 				data.get<FirebaseJsonArray>(dataArr);
 
-				dataArr.get(data, 0);
-				accelXVecVert.push_back(data.to<String>().toFloat());
-				dataArr.get(data, 1);
-				accelYVecVert.push_back(data.to<String>().toFloat());
-				dataArr.get(data, 2);
-				accelZVecVert.push_back(data.to<String>().toFloat());
-				dataArr.get(data, 3);
-				accelXVecHori.push_back(data.to<String>().toFloat());
-				dataArr.get(data, 4);
-				accelYVecHori.push_back(data.to<String>().toFloat());
-				dataArr.get(data, 5);
-				accelZVecHori.push_back(data.to<String>().toFloat());
+        // For 1D
+				// dataArr.get(data, 0);
+				// accelXVecVert.push_back(data.to<String>().toFloat());
+				// dataArr.get(data, 1);
+				// accelYVecVert.push_back(data.to<String>().toFloat());
+				// dataArr.get(data, 2);
+				// accelZVecVert.push_back(data.to<String>().toFloat());
+				// dataArr.get(data, 3);
+				// accelXVecHori.push_back(data.to<String>().toFloat());
+				// dataArr.get(data, 4);
+				// accelYVecHori.push_back(data.to<String>().toFloat());
+				// dataArr.get(data, 5);
+				// accelZVecHori.push_back(data.to<String>().toFloat());
+
+        // For 2D
+        dataArr.get(data, 0);
+        accelXVecVert[a][j] = data.to<String>().toFloat();
+        dataArr.get(data, 1);
+        accelYVecVert[a][j] = data.to<String>().toFloat();
+        dataArr.get(data, 2);
+        accelZVecVert[a][j] = data.to<String>().toFloat();
+        dataArr.get(data, 3);
+        accelXVecHori[a][j] = data.to<String>().toFloat();
+        dataArr.get(data, 4);
+        accelYVecHori[a][j] = data.to<String>().toFloat();
+        dataArr.get(data, 5);
+        accelZVecHori[a][j] = data.to<String>().toFloat();
 			}
 		}
 
+    Serial.println("Done processing data");
 		// To check if user input is set correctly
 		// for (int i = 0; i < INPUT_SIZE; i++)
 		// {
@@ -233,47 +261,114 @@ void loop()
 	Serial.println(ESP.getFreeHeap());
 	Serial.print("Combining all vector into 1");
 	Serial.println();
-	std::vector<float> accelData;
-	for (int i = 0; i < accelXVecVert.size(); i++)
-	{
-		accelData.push_back(accelXVecVert[i]);
-	}
-	for (int i = 0; i < accelYVecVert.size(); i++)
-	{
-		accelData.push_back(accelYVecVert[i]);
-	}
-	for (int i = 0; i < accelZVecVert.size(); i++)
-	{
-		accelData.push_back(accelZVecVert[i]);
-	}
-	for (int i = 0; i < accelXVecHori.size(); i++)
-	{
-		accelData.push_back(accelXVecHori[i]);
-	}
-	for (int i = 0; i < accelYVecHori.size(); i++)
-	{
-		accelData.push_back(accelYVecHori[i]);
-	}
-	for (int i = 0; i < accelZVecHori.size(); i++)
-	{
-		accelData.push_back(accelZVecHori[i]);
-	}
+	std::vector<std::vector<float>> accelData(24, std::vector<float>(24));
 
-	Serial.print("Size of combined vector: ");
-	Serial.println(accelData.size());
+  // For 1D
+	// for (int i = 0; i < accelXVecVert.size(); i++)
+	// {
+	// 	accelData.push_back(accelXVecVert[i]);
+	// }
+	// for (int i = 0; i < accelYVecVert.size(); i++)
+	// {
+	// 	accelData.push_back(accelYVecVert[i]);
+	// }
+	// for (int i = 0; i < accelZVecVert.size(); i++)
+	// {
+	// 	accelData.push_back(accelZVecVert[i]);
+	// }
+	// for (int i = 0; i < accelXVecHori.size(); i++)
+	// {
+	// 	accelData.push_back(accelXVecHori[i]);
+	// }
+	// for (int i = 0; i < accelYVecHori.size(); i++)
+	// {
+	// 	accelData.push_back(accelYVecHori[i]);
+	// }
+	// for (int i = 0; i < accelZVecHori.size(); i++)
+	// {
+	// 	accelData.push_back(accelZVecHori[i]);
+	// }
 
-	accelXVecHori.clear();
-	accelYVecHori.clear();
-	accelZVecHori.clear();
-	accelXVecVert.clear();
-	accelYVecVert.clear();
-	accelZVecVert.clear();
+	// Serial.print("Size of combined vector: ");
+	// Serial.println(accelData.size());
 
-	// Set input into interpreter
-	for (int i = 0; i < accelData.size(); i++)
-	{
-		CNN_input->data.f[i] = accelData[i];
-	}
+	// accelXVecHori.clear();
+	// accelYVecHori.clear();
+	// accelZVecHori.clear();
+	// accelXVecVert.clear();
+	// accelYVecVert.clear();
+	// accelZVecVert.clear();
+
+	// // Set input into interpreter
+	// for (int i = 0; i < accelData.size(); i++)
+	// {
+	// 	CNN_input->data.f[i] = accelData[i];
+	// }
+
+  // For 2D
+  for (int i = 0; i < accelXVecVert.size(); i++)
+  {
+    for (int j = 0; j < accelXVecVert[i].size(); j++)
+    {
+      accelData[i][j] = accelXVecVert[i][j];
+    }
+  }
+  for (int i = 0; i < accelYVecVert.size(); i++)
+  {
+    for (int j = 0; j < accelYVecVert[i].size(); j++)
+    {
+      accelData[i+4][j] = accelYVecVert[i][j];
+    }
+  }
+  for (int i = 0; i < accelZVecVert.size(); i++)
+  {
+    for (int j = 0; j < accelZVecVert[i].size(); j++)
+    {
+      accelData[i+8][j] = accelZVecVert[i][j];
+    }
+  }
+  for (int i = 0; i < accelXVecHori.size(); i++)
+  {
+    for (int j = 0; j < accelXVecHori[i].size(); j++)
+    {
+      accelData[i+12][j] = accelXVecHori[i][j];
+    }
+  }
+  for (int i = 0; i < accelYVecHori.size(); i++)
+  {
+    for (int j = 0; j < accelYVecHori[i].size(); j++)
+    {
+      accelData[i+16][j] = accelYVecHori[i][j];
+    }
+  }
+  for (int i = 0; i < accelZVecHori.size(); i++)
+  {
+    for (int j = 0; j < accelZVecHori[i].size(); j++)
+    {
+      accelData[i+20][j] = accelZVecHori[i][j];
+    }
+  }
+
+  Serial.print("Size of combined vector: ");
+  Serial.println(accelData.size());
+
+  // Only for 1D
+  // accelXVecHori.clear();
+  // accelYVecHori.clear();
+  // accelZVecHori.clear();
+  // accelXVecVert.clear();
+  // accelYVecVert.clear();
+  // accelZVecVert.clear();
+
+  // Set input into interpreter
+  for (int i = 0; i < accelData.size(); i++)
+  {
+    for (int j = 0; j < accelData[i].size(); j++)
+    {
+      CNN_input->data.f[i*24+j] = accelData[i][j];
+    }
+  }
+
 
 	Serial.println("Running inference on inputted data...");
 
@@ -347,7 +442,7 @@ void loop()
 													   &toUpdateArr		   /* range to update */
 		);
 
-		updateResponse.toString(Serial, true);
+		// updateResponse.toString(Serial, true);
 		Serial.println();
 
 		Serial.print("Free heap: ");
