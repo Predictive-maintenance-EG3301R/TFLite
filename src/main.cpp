@@ -88,7 +88,7 @@ void setup()
 	// ********************** Loading of CNN Model ************************
 	// Load the AR model
 	Serial.println("Loading Tensorflow model....");
-	CNN_model = tflite::GetModel(cnn_fullint_quantized_tflite);
+	CNN_model = tflite::GetModel(cnn_1d_fullint_quantized_model_tflite);
 	Serial.println("CNN model loaded!");
 
 	// Define ops resolver and error reporting
