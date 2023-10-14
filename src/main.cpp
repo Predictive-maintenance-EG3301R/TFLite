@@ -16,17 +16,18 @@
 #include <Arduino.h>
 #include <WiFi.h>
 #include <Preferences.h>
-#include <vector>
 #include <Update.h>
 #include "time.h"
 
 using namespace std;
 
 //***************** Generic variables *****************
-// #define RESET_TIMER 1000ULL * 60 * 60 * 24 // Reset ESP32 every 24 hours
 unsigned long long deep_sleep_time = 1000000ULL * 10 * 1 * 1; // Time to sleep in microseconds (10seconds)
 Preferences preferences;
-int mode; // 0 for autoencoder, 1 for classifier
+int mode;								   // 0 for autoencoder, 1 for classifier
+volatile bool isLEDTimerTriggered = false; // For checking if timer triggered
+int pulseBrightness = RGB_BRIGHTNESS;
+bool pulseDown = true;
 
 //***************** WiFi/OTA variables *****************
 WiFiClient client;
@@ -39,6 +40,8 @@ bool isValidContentType = false;
 volatile bool OTAAvailable = false;
 
 // **************** Accelerometer variables ****************
+#define NUM_PER_SAMPLE 1000 // Number of data points per sample
+int numSamples = 0;
 int acc_counter = 0;
 int acc_timechecker = millis();
 volatile bool isAccTimerTriggered = false; // For checking if timer triggered
@@ -52,20 +55,26 @@ float offsetZVert = 0.0;
 float offsetXHori = 0.0;
 float offsetYHori = 0.0;
 float offsetZHori = 0.0;
-vector<float> accelXVecVert;
-vector<float> accelYVecVert;
-vector<float> accelZVecVert;
-vector<float> accelXVecHori;
-vector<float> accelYVecHori;
-vector<float> accelZVecHori;
+float accelXVecVert[1000];
+float accelYVecVert[1000];
+float accelZVecVert[1000];
+float accelXVecHori[1000];
+float accelYVecHori[1000];
+float accelZVecHori[1000];
 
 // For normalizing the accelerometer data
-float maxAccelXVert = -10e9;
-float minAccelXVert = 10e9;
-float maxAccelYVert = -10e9;
-float minAccelYVert = 10e9;
-float maxAccelZVert = -10e9;
-float minAccelZVert = 10e9;
+float maxAccelXVert[10] = {-10e9, -10e9, -10e9, -10e9, -10e9, -10e9, -10e9, -10e9, -10e9, -10e9};
+float minAccelXVert[10] = {10e9, 10e9, 10e9, 10e9, 10e9, 10e9, 10e9, 10e9, 10e9, 10e9};
+float maxAccelYVert[10] = {-10e9, -10e9, -10e9, -10e9, -10e9, -10e9, -10e9, -10e9, -10e9, -10e9};
+float minAccelYVert[10] = {10e9, 10e9, 10e9, 10e9, 10e9, 10e9, 10e9, 10e9, 10e9, 10e9};
+float maxAccelZVert[10] = {-10e9, -10e9, -10e9, -10e9, -10e9, -10e9, -10e9, -10e9, -10e9, -10e9};
+float minAccelZVert[10] = {10e9, 10e9, 10e9, 10e9, 10e9, 10e9, 10e9, 10e9, 10e9, 10e9};
+float maxAccelXHori[10] = {-10e9, -10e9, -10e9, -10e9, -10e9, -10e9, -10e9, -10e9, -10e9, -10e9};
+float minAccelXHori[10] = {10e9, 10e9, 10e9, 10e9, 10e9, 10e9, 10e9, 10e9, 10e9, 10e9};
+float maxAccelYHori[10] = {-10e9, -10e9, -10e9, -10e9, -10e9, -10e9, -10e9, -10e9, -10e9, -10e9};
+float minAccelYHori[10] = {10e9, 10e9, 10e9, 10e9, 10e9, 10e9, 10e9, 10e9, 10e9, 10e9};
+float maxAccelZHori[10] = {-10e9, -10e9, -10e9, -10e9, -10e9, -10e9, -10e9, -10e9, -10e9, -10e9};
+float minAccelZHori[10] = {10e9, 10e9, 10e9, 10e9, 10e9, 10e9, 10e9, 10e9, 10e9, 10e9};
 
 SPARKFUN_LIS2DH12 accelVert; // Create instance
 SPARKFUN_LIS2DH12 accelHori; // Create instance
@@ -73,29 +82,27 @@ SPARKFUN_LIS2DH12 accelHori; // Create instance
 
 TwoWire I2Cone = TwoWire(0);
 
-// Interrupt handler to collect accelerometer data per 1ms
-void IRAM_ATTR onTimer()
-{
-	isAccTimerTriggered = true; // Indicates that the interrupt has been entered since the last time its value was changed to false
-}
-
 // **************** TF Lite variables ****************
 // Details for model to be tested
-#define AUTOENCODER_INPUT_SIZE 100
-#define CLASSIFICATION_INPUT_SIZE 576
-#define NUM_SAMPLES 200
+#define AUTOENCODER_INPUT_SIZE 100	 // Per axis
+#define CLASSIFICATION_INPUT_SIZE 96 // Per axis
+#define NUM_INFERENCE_SAMPLES 200
+#define NUM_AXIS 6
 #define NUM_CATEGORIES 3
 
 // For both
-vector<float> output_data;
+int total_inference_count = 0;
 
 // For classification
 int num_healthy = 0;
 int num_loose = 0;
 int num_cavitation = 0;
+int max_index = 0;
+float max_output = 0.0;
 
 // For autoencoder
 float mse_threshold = 0.02774564472135648; // Value obtained from training
+float output_mse = 0;
 int num_anomaly = 0;
 bool anomaly_detected = false;
 
@@ -113,6 +120,15 @@ tflite::MicroInterpreter *model_interpreter;
 TfLiteTensor *model_input;
 TfLiteTensor *model_output;
 
+//***************** RGB Functions *****************
+void setRed();
+void setGreen();
+void setBlue();
+void setPurple();
+void setOrange();
+void setYellow();
+void setPulsingBlue();
+
 //***************** Blynk Functions *****************
 BLYNK_CONNECTED()
 {
@@ -128,11 +144,29 @@ BLYNK_WRITE(OTA_VPIN) // To read in whether OTA is available from Blynk
 String getHeaderValue(String header, String headerName);
 void execOTA();
 
+//***************** Accelerometer Functions *****************
+void getAccelData();
+void normalizeAccelData();
+
+//***************** TFLite Functions *****************
+void evaluateResults();
+
+// Interrupt handler to collect accelerometer data per 1ms
+void IRAM_ATTR onTimer()
+{
+	isAccTimerTriggered = true; // Indicates that the interrupt has been entered since the last time its value was changed to false
+	isLEDTimerTriggered = true;
+}
+
 // Set up the ESP32's environment.
 void setup()
 {
 	// Start serial at 115200 baud
 	Serial.begin(115200);
+
+	// Set up LED
+	pinMode(RGB_BUILTIN, OUTPUT);
+	digitalWrite(RGB_BUILTIN, LOW);
 
 	// Connect to Wifi
 	int numConnection = 0;
@@ -151,6 +185,9 @@ void setup()
 		delay(300);
 	}
 
+	// Set RGB to blue to indicate successful connection
+	setBlue();
+
 	// Check for OTA first
 	// ********** Blynk setup **********
 	Blynk.begin(BLYNK_AUTH_TOKEN, WIFI_SSID, WIFI_PASSWORD, "blynk.cloud", 8080);
@@ -159,6 +196,8 @@ void setup()
 		Serial.println("Blynk Connected");
 		delay(100);
 		Blynk.syncVirtual(OTA_VPIN);
+		delay(500);
+		Blynk.syncVirtual(OTA_VPIN); // Second time to ensure value read in is correct
 	}
 	else
 	{
@@ -169,6 +208,7 @@ void setup()
 	if (OTAAvailable)
 	{
 		Serial.println("OTA is available");
+		setPurple();
 		execOTA();
 	}
 	else
@@ -227,124 +267,419 @@ void setup()
 	model_input = model_interpreter->input(0);
 	model_output = model_interpreter->output(0);
 	Serial.println("Input and output nodes loaded!");
-	Serial.println("Starting inferences");
+
+	// ********** Timer Interrupt setup **********
+	acc_timer = timerBegin(0, 80, true);				  // Begin timer with 1 MHz frequency (80MHz/80)
+	timerAttachInterrupt(acc_timer, &onTimer, true);	  // Attach the interrupt to Timer1
+	unsigned int timerFactor = 1000000 / accSamplingRate; // Calculate the time interval between two readings, or more accurately, the number of cycles between two readings
+	timerAlarmWrite(acc_timer, timerFactor, true);		  // Initialize the timer
+	timerAlarmEnable(acc_timer);
 }
 
 // Logic loop for taking user input and outputting the FFT
 void loop()
 {
-	Blynk.run();
-	// Check amount of free heap space initially
-	Serial.print("Free heap before running model: ");
-	Serial.println(String(ESP.getFreeHeap()));
-
-	// Test the model with some dummy data
-	Serial.println("Testing model with dummy data...");
-
-	// Run the model for NUM_SAMPLES times
-	int curr_sample = 0;
-	while (curr_sample < NUM_SAMPLES)
+	if (numSamples == NUM_PER_SAMPLE)
 	{
-		if (mode == 0)
-		{
-			// Load the dummy data into the interpreter
-			for (int i = 0; i < AUTOENCODER_INPUT_SIZE; i++)
-			{
-				model_input->data.f[i] = 0.0;
-			}
-		}
-		else
-		{
-			// Load the dummy data into the interpreter
-			for (int i = 0; i < CLASSIFICATION_INPUT_SIZE; i++)
-			{
-				model_input->data.f[i] = 0.0;
-			}
-		}
+		// Check amount of free heap space initially
+		Serial.print("Free heap before running model: ");
+		Serial.println(String(ESP.getFreeHeap()));
 
-		// Run inference on the model
-		TfLiteStatus invoke_status = model_interpreter->Invoke();
-		if (invoke_status != kTfLiteOk)
-		{
-			Serial.println("There was an error invoking the interpreter...ooof");
-			esp_deep_sleep_start();
-		}
+		// Test the model with some dummy data
+		Serial.println("Testing model with dummy data...");
 
-		// Get the output from the model
-		if (mode == 0)
-		{
-			for (int i = 0; i < AUTOENCODER_INPUT_SIZE; i++)
-			{
-				output_data.push_back(model_output->data.f[i]);
-			}
-		}
-		else
-		{
-			for (int i = 0; i < CLASSIFICATION_INPUT_SIZE; i++)
-			{
-				output_data.push_back(model_output->data.f[i]);
-			}
-		}
+		// Normalizing the accelerometer data first
+		normalizeAccelData();
 
-		if (mode == 0)
+		// Each sample of 1000ms can be split into 10 samples of 100ms for inference
+		int curr_inference_count = 0;
+		while (curr_inference_count < 10)
 		{
-			// Calculate the mse
-			float output_mse = 0.0;
-			for (int i = 0; i < AUTOENCODER_INPUT_SIZE; i++)
+			if (mode == 0)
 			{
-				output_mse += pow((1.0 - output_data[i]), 2);
-			}
-			output_mse /= AUTOENCODER_INPUT_SIZE;
-
-			// Check if the mse is above the threshold
-			if (output_mse > mse_threshold)
-			{
-				num_anomaly++;
-			}
-		}
-		else
-		{
-			// Check if the output is healthy, loose or cavitation
-			float max_output = -10e9;
-			int max_index = 0;
-			for (int i = 0; i < NUM_CATEGORIES; i++)
-			{
-				if (output_data[i] > max_output)
+				// Load the data into the interpreter
+				for (int i = 0; i < AUTOENCODER_INPUT_SIZE; i++)
 				{
-					max_output = output_data[i];
-					max_index = i;
+					model_input->data.f[i] = accelXVecVert[i + (curr_inference_count * AUTOENCODER_INPUT_SIZE)];
+					model_input->data.f[i + AUTOENCODER_INPUT_SIZE] = accelYVecVert[i + (curr_inference_count * AUTOENCODER_INPUT_SIZE)];
+					model_input->data.f[i + (2 * AUTOENCODER_INPUT_SIZE)] = accelZVecVert[i + (curr_inference_count * AUTOENCODER_INPUT_SIZE)];
+					model_input->data.f[i + (3 * AUTOENCODER_INPUT_SIZE)] = accelXVecHori[i + (curr_inference_count * AUTOENCODER_INPUT_SIZE)];
+					model_input->data.f[i + (4 * AUTOENCODER_INPUT_SIZE)] = accelYVecHori[i + (curr_inference_count * AUTOENCODER_INPUT_SIZE)];
+					model_input->data.f[i + (5 * AUTOENCODER_INPUT_SIZE)] = accelZVecHori[i + (curr_inference_count * AUTOENCODER_INPUT_SIZE)];
 				}
-			}
-
-			if (max_index == 1)
-			{
-				num_healthy++;
-			}
-			else if (max_index == 2)
-			{
-				num_loose++;
 			}
 			else
 			{
-				num_cavitation++;
+				// Load the data into the interpreter
+				for (int i = 0; i < CLASSIFICATION_INPUT_SIZE; i++)
+				{
+					model_input->data.f[i] = accelXVecVert[i];
+					model_input->data.f[i + CLASSIFICATION_INPUT_SIZE] = accelYVecVert[i + (curr_inference_count * 100)];
+					model_input->data.f[i + (2 * CLASSIFICATION_INPUT_SIZE)] = accelZVecVert[i + (curr_inference_count * 100)];
+					model_input->data.f[i + (3 * CLASSIFICATION_INPUT_SIZE)] = accelXVecHori[i + (curr_inference_count * 100)];
+					model_input->data.f[i + (4 * CLASSIFICATION_INPUT_SIZE)] = accelYVecHori[i + (curr_inference_count * 100)];
+					model_input->data.f[i + (5 * CLASSIFICATION_INPUT_SIZE)] = accelZVecHori[i + (curr_inference_count * 100)];
+				}
+			}
+
+			// Run inference on the model
+			TfLiteStatus invoke_status = model_interpreter->Invoke();
+			if (invoke_status != kTfLiteOk)
+			{
+				Serial.println("There was an error invoking the interpreter...ooof");
+				delay(5000);
+				esp_restart();
+			}
+
+			// Get the output from the model
+			if (mode == 0)
+			{
+				// Calculate the MSE
+				int num_rounds = 0;
+				for (int i = 0; i < (AUTOENCODER_INPUT_SIZE * NUM_AXIS); i++)
+				{
+					float curr_data = model_output->data.f[i];
+					if (i % 6 == 0)
+					{
+						output_mse += pow((accelXVecVert[num_rounds] - curr_data), 2);
+					}
+					else if (i % 6 == 1)
+					{
+						output_mse += pow((accelYVecVert[num_rounds] - curr_data), 2);
+					}
+					else if (i % 6 == 2)
+					{
+						output_mse += pow((accelZVecVert[num_rounds] - curr_data), 2);
+					}
+					else if (i % 6 == 3)
+					{
+						output_mse += pow((accelXVecHori[num_rounds] - curr_data), 2);
+					}
+					else if (i % 6 == 4)
+					{
+						output_mse += pow((accelYVecHori[num_rounds] - curr_data), 2);
+					}
+					else if (i % 6 == 5)
+					{
+						output_mse += pow((accelZVecHori[num_rounds] - curr_data), 2);
+						num_rounds++;
+					}
+				}
+
+				output_mse /= (AUTOENCODER_INPUT_SIZE * NUM_AXIS);
+			}
+			else
+			{
+				for (int i = 0; i < NUM_CATEGORIES; i++)
+				{
+					float curr_data = model_output->data.f[i];
+					if (curr_data > max_output)
+					{
+						max_output = curr_data;
+						max_index = i;
+					}
+				}
+			}
+
+			// Processing output data based on model
+			if (mode == 0)
+			{
+				// Check if the mse is above the threshold
+				if (output_mse > mse_threshold)
+				{
+					num_anomaly++;
+				}
+
+				output_mse = 0.0; // Reset the output_mse
+			}
+			else
+			{
+				// Check if the output is healthy, loose or cavitation
+				if (max_index == 1)
+				{
+					num_healthy++;
+				}
+				else if (max_index == 2)
+				{
+					num_loose++;
+				}
+				else
+				{
+					num_cavitation++;
+				}
+			}
+
+			curr_inference_count++;
+			total_inference_count++;
+			// Serial.println("Inference count: " + String(curr_inference_count));
+			delay(10);
+		}
+
+		numSamples = 0; // Reset the number of samples taken
+		Serial.println("Inference count: " + String(total_inference_count));
+		// Check amount of free heap space after running model
+		Serial.print("Free heap after running model: ");
+		Serial.println(String(ESP.getFreeHeap()));
+	}
+
+	if (isAccTimerTriggered && (numSamples < NUM_PER_SAMPLE))
+	{
+		isAccTimerTriggered = false;
+
+		// ********** MPU6050 **********
+		// // float y_value = a.acceleration.y;
+		// accelXVecVert.push_back(a.acceleration.x);
+		// accelXVecHori.push_back(a.acceleration.x);
+
+		// accelYVecVert.push_back(a.acceleration.y);
+		// accelYVecHori.push_back(a.acceleration.y);
+
+		// accelZVecVert.push_back(a.acceleration.z);
+		// accelZVecHori.push_back(a.acceleration.z);
+
+		// // // For normalizing the accelerometer data
+		// // if (y_value > maxAccelYVert) {
+		// // 	maxAccelYVert = y_value;
+		// // }
+		// // if (y_value < minAccelYVert) {
+		// // 	minAccelYVert = y_value;
+		// // }
+
+		// ********** Sparkfun LIS2DH12 **********
+		// getAccelData();
+
+		// ********** Dummy data **********
+		accelXVecVert[numSamples] = 0.0;
+		accelXVecHori[numSamples] = 0.0;
+		accelYVecVert[numSamples] = 0.0;
+		accelYVecHori[numSamples] = 0.0;
+		accelZVecVert[numSamples] = 0.0;
+		accelZVecHori[numSamples] = 0.0;
+
+		numSamples++; // Increment the number of samples taken
+	}
+
+	if (total_inference_count >= NUM_INFERENCE_SAMPLES)
+	{
+		Serial.println("Inferences done, processing results now");
+		evaluateResults();
+		delay(5000); // Delay to allow user to see whether anomaly was detected from RGB LED
+		Serial.println("Going into deep sleep...");
+		esp_sleep_enable_timer_wakeup(deep_sleep_time);
+		esp_deep_sleep_start();
+
+		ledcAttachPin(RGB_BUILTIN, 0);
+		ledcWrite(0, 0);
+	}
+}
+
+// **************** RGB Utility Functions ****************
+void setRed()
+{
+	neopixelWrite(RGB_BUILTIN, RGB_BRIGHTNESS, 0, 0);
+}
+
+void setGreen()
+{
+	neopixelWrite(RGB_BUILTIN, 0, RGB_BRIGHTNESS, 0);
+}
+
+void setBlue()
+{
+	neopixelWrite(RGB_BUILTIN, 0, 0, RGB_BRIGHTNESS);
+}
+
+void setPurple()
+{
+	neopixelWrite(RGB_BUILTIN, RGB_BRIGHTNESS, 0, RGB_BRIGHTNESS);
+}
+
+void setOrange()
+{
+	neopixelWrite(RGB_BUILTIN, RGB_BRIGHTNESS, RGB_BRIGHTNESS / 2, 0);
+}
+
+void setYellow()
+{
+	neopixelWrite(RGB_BUILTIN, RGB_BRIGHTNESS, RGB_BRIGHTNESS, 0);
+}
+
+void setPulsingBlue()
+{
+	if (isLEDTimerTriggered)
+	{
+		isLEDTimerTriggered = false;
+		if (pulseDown)
+		{
+			pulseBrightness--;
+			if (pulseBrightness == 0)
+			{
+				pulseDown = false;
+			}
+		}
+		else
+		{
+			pulseBrightness++;
+			if (pulseBrightness == RGB_BRIGHTNESS)
+			{
+				pulseDown = true;
 			}
 		}
 
-		output_data.clear();
-		curr_sample++;
-		// Serial.println("Inference count: " + String(curr_sample));
-		delay(10);
+		neopixelWrite(RGB_BUILTIN, 0, 0, pulseBrightness);
+	}
+}
+
+// **************** Accelerometer Utility Functions ****************
+// To get the readings from the accelerometer & update min and max values for normalizing
+void getAccelData()
+{
+	// Get XVert data and update min and max for normalizing
+	float currXVert = accelVert.getX() - offsetXVert;
+	int currIdx = numSamples / 100;
+
+	if (currXVert > maxAccelXVert[currIdx])
+	{
+		maxAccelXVert[currIdx] = currXVert;
+	}
+	if (currXVert < minAccelXVert[currIdx])
+	{
+		minAccelXVert[currIdx] = currXVert;
 	}
 
-	Serial.println("Inferences done, processing results now");
+	// Get YVert data and update min and max for normalizing
+	float currYVert = accelVert.getY() - offsetYVert;
+	if (currYVert > maxAccelYVert[currIdx])
+	{
+		maxAccelYVert[currIdx] = currYVert;
+	}
+	if (currYVert < minAccelYVert[currIdx])
+	{
+		minAccelYVert[currIdx] = currYVert;
+	}
+
+	// Get ZVert data and update min and max for normalizing
+	float currZVert = accelVert.getZ() - offsetZVert;
+	if (currZVert > maxAccelZVert[currIdx])
+	{
+		maxAccelZVert[currIdx] = currZVert;
+	}
+	if (currZVert < minAccelZVert[currIdx])
+	{
+		minAccelZVert[currIdx] = currZVert;
+	}
+
+	// Get XHori data and update min and max for normalizing
+	float currXHori = accelHori.getX() - offsetXHori;
+	if (currXHori > maxAccelXHori[currIdx])
+	{
+		maxAccelXHori[currIdx] = currXHori;
+	}
+	if (currXHori < minAccelXHori[currIdx])
+	{
+		minAccelXHori[currIdx] = currXHori;
+	}
+
+	// Get YHori data and update min and max for normalizing
+	float currYHori = accelHori.getY() - offsetYHori;
+	if (currYHori > maxAccelYHori[currIdx])
+	{
+		maxAccelYHori[currIdx] = currYHori;
+	}
+	if (currYHori < minAccelYHori[currIdx])
+	{
+		minAccelYHori[currIdx] = currYHori;
+	}
+
+	// Get ZHori data and update min and max for normalizing
+	float currZHori = accelHori.getZ() - offsetZHori;
+	if (currZHori > maxAccelZHori[currIdx])
+	{
+		maxAccelZHori[currIdx] = currZHori;
+	}
+	if (currZHori < minAccelZHori[currIdx])
+	{
+		minAccelZHori[currIdx] = currZHori;
+	}
+
+	accelXVecVert[numSamples] = currXVert;
+	accelXVecHori[numSamples] = currXHori;
+	accelYVecVert[numSamples] = currYVert;
+	accelYVecHori[numSamples] = currYHori;
+	accelZVecVert[numSamples] = currZVert;
+	accelZVecHori[numSamples] = currZHori;
+	// numSamples is added in the main loop, no need to add here
+}
+
+// Normalize the accelerometer data and reset the min and max values for each axis
+// Data is normalized in segments of 100, between 0 and 1 for autoencoder and -1 and 1 for classifier
+void normalizeAccelData()
+{
+	if (mode == 0)
+	{
+		for (int i = 0; i < 10; i++)
+		{
+			for (int j = 0; j < 100; j++)
+			{
+				accelXVecVert[(i * 100) + j] = (accelXVecVert[(i * 100) + j] - minAccelXVert[i]) / (maxAccelXVert[i] - minAccelXVert[i]);
+				accelYVecVert[(i * 100) + j] = (accelYVecVert[(i * 100) + j] - minAccelYVert[i]) / (maxAccelYVert[i] - minAccelYVert[i]);
+				accelZVecVert[(i * 100) + j] = (accelZVecVert[(i * 100) + j] - minAccelZVert[i]) / (maxAccelZVert[i] - minAccelZVert[i]);
+				accelXVecHori[(i * 100) + j] = (accelXVecHori[(i * 100) + j] - minAccelXHori[i]) / (maxAccelXHori[i] - minAccelXHori[i]);
+				accelYVecHori[(i * 100) + j] = (accelYVecHori[(i * 100) + j] - minAccelYHori[i]) / (maxAccelYHori[i] - minAccelYHori[i]);
+				accelZVecHori[(i * 100) + j] = (accelZVecHori[(i * 100) + j] - minAccelZHori[i]) / (maxAccelZHori[i] - minAccelZHori[i]);
+			}
+		}
+	}
+	if (mode == 1)
+	{
+		for (int i = 0; i < 10; i++)
+		{
+			for (int j = 0; j < 100; j++)
+			{
+				accelXVecVert[(i * 100) + j] = ((accelXVecVert[(i * 100) + j] - minAccelXVert[i]) / (maxAccelXVert[i] - minAccelXVert[i])) * 2 - 1;
+				accelYVecVert[(i * 100) + j] = ((accelYVecVert[(i * 100) + j] - minAccelYVert[i]) / (maxAccelYVert[i] - minAccelYVert[i])) * 2 - 1;
+				accelZVecVert[(i * 100) + j] = ((accelZVecVert[(i * 100) + j] - minAccelZVert[i]) / (maxAccelZVert[i] - minAccelZVert[i])) * 2 - 1;
+				accelXVecHori[(i * 100) + j] = ((accelXVecHori[(i * 100) + j] - minAccelXHori[i]) / (maxAccelXHori[i] - minAccelXHori[i])) * 2 - 1;
+				accelYVecHori[(i * 100) + j] = ((accelYVecHori[(i * 100) + j] - minAccelYHori[i]) / (maxAccelYHori[i] - minAccelYHori[i])) * 2 - 1;
+				accelZVecHori[(i * 100) + j] = ((accelZVecHori[(i * 100) + j] - minAccelZHori[i]) / (maxAccelZHori[i] - minAccelZHori[i])) * 2 - 1;
+			}
+		}
+	}
+
+	// Reset the min and max values
+	for (int i = 0; i < 10; i++)
+	{
+		maxAccelXVert[i] = -10e9;
+		minAccelXVert[i] = 10e9;
+		maxAccelYVert[i] = -10e9;
+		minAccelYVert[i] = 10e9;
+		maxAccelZVert[i] = -10e9;
+		minAccelZVert[i] = 10e9;
+		maxAccelXHori[i] = -10e9;
+		minAccelXHori[i] = 10e9;
+		maxAccelYHori[i] = -10e9;
+		minAccelYHori[i] = 10e9;
+		maxAccelZHori[i] = -10e9;
+		minAccelZHori[i] = 10e9;
+	}
+};
+
+// **************** TFLite Utility Functions ****************
+// Evaluate the results of the inference and update EEPROM to change mode based on result
+// Mode will always be changed back to autoencoder after running the classifier once
+void evaluateResults()
+{
 	// Process the results
 	if (mode == 0)
 	{
-		float percentage_anomaly = (float)num_anomaly / (float)NUM_SAMPLES;
+		float percentage_anomaly = (float)num_anomaly / (float)total_inference_count;
+		Serial.print("Percentage anomaly: ");
+		Serial.println(percentage_anomaly);
 		if (percentage_anomaly > 0.5)
 		{
 			Serial.println("Anomaly detected!");
 			anomaly_detected = true;
+			setRed();
 		}
 		else
 		{
@@ -353,12 +688,30 @@ void loop()
 	}
 	else
 	{
-		float percentage_healthy = (float)num_healthy / (float)NUM_SAMPLES;
-		float percentage_loose = (float)num_loose / (float)NUM_SAMPLES;
-		float percentage_cavitation = (float)num_cavitation / (float)NUM_SAMPLES;
+		float percentage_healthy = (float)num_healthy / (float)total_inference_count;
+		float percentage_loose = (float)num_loose / (float)total_inference_count;
+		float percentage_cavitation = (float)num_cavitation / (float)total_inference_count;
+
 		Serial.printf("Percentage healthy: %f\n", percentage_healthy);
 		Serial.printf("Percentage loose: %f\n", percentage_loose);
 		Serial.printf("Percentage cavitation: %f\n", percentage_cavitation);
+
+		// Set RGB to indicate the health of the pump
+		if (percentage_healthy >= percentage_loose && percentage_healthy >= percentage_cavitation)
+		{
+			Serial.println("Pump is healthy!");
+			setGreen();
+		}
+		else if (percentage_loose >= percentage_healthy && percentage_loose >= percentage_cavitation)
+		{
+			Serial.println("Pump is loose!");
+			setYellow();
+		}
+		else
+		{
+			Serial.println("Pump is cavitation!");
+			setOrange();
+		}
 	}
 
 	// Setting the mode for the next run
@@ -374,14 +727,9 @@ void loop()
 		preferences.putInt("mode", 0);
 	}
 	preferences.end();
+};
 
-	// Check amount of free heap space after running model
-	Serial.print("Free heap after running model: ");
-	Serial.println(String(ESP.getFreeHeap()));
-	Serial.println("Going into deep sleep...");
-	esp_sleep_enable_timer_wakeup(deep_sleep_time);
-	esp_deep_sleep_start();
-}
+// **************** OTA Utility Functions ****************
 
 // Utility to extract header value from headers
 String getHeaderValue(String header, String headerName)
@@ -389,7 +737,6 @@ String getHeaderValue(String header, String headerName)
 	return header.substring(strlen(headerName.c_str()));
 }
 
-// **************** OTA Utility Functions ****************
 // Function to get flash ESP32 with new firmware
 void execOTA()
 {
