@@ -175,6 +175,54 @@ void sendNewOffsets()
 	delay(1000);
 }
 
+void checkReset()
+{
+	FirebaseJson responseConfig;
+	FirebaseJsonData dataConfig;
+	String configRange = SHEET_NAME;
+	configRange.concat("!J2");
+
+	bool successConfig = GSheet.values.get(&responseConfig, /* returned response */
+										   SPREADSHEET_ID,	/* spreadsheet Id to read */
+										   configRange		/* range to read */
+	);
+
+	if (!successConfig)
+	{
+		Serial.println("Unable to read in reset value, restarting ESP32...");
+		ESP.restart();
+	}
+
+	// Get the current row number
+	responseConfig.get(dataConfig, "values/[0]/[0]");
+	int toReset = dataConfig.to<long>();
+
+	if (toReset)
+	{
+		FirebaseJson updateReset;
+		FirebaseJson updateResponse;
+		String updateResetRange = SHEET_NAME;
+		updateResetRange.concat("!J2");
+		updateReset.add("range", updateResetRange);
+		updateReset.add("majorDimension", "ROWS");
+		updateReset.set("values/[0]/[0]", 0);
+
+		bool success = false;
+		do
+		{
+			// Serial.println("Updating of current row number to 11...");
+			success = GSheet.values.update(&updateResponse,	 // Returned response
+										   SPREADSHEET_ID,	 // Spreadsheet ID to update
+										   updateResetRange, // Range of data to update
+										   &updateReset);	 // Array of data to update
+			delay(2000);									 // Wait for 2 seconds before trying again
+		} while (!success);
+		Serial.println("Resetting in 30 secs...");
+		delay(30000);
+		ESP.restart();
+	}
+}
+
 void googleSheetsSetup()
 {
 	// *********** Setting up of Google Sheets ***********
@@ -236,7 +284,7 @@ void googleSheetsSetup()
 										   configRange		/* range to read */
 	);
 	// responseConfig.toString(Serial, true); // To view the entire response
-	Serial.println();
+	// Serial.println();
 
 	if (!successConfig)
 	{
@@ -275,32 +323,32 @@ void googleSheetsSetup()
 	// Use hardcoded values if unable to read in old config values
 	if (offsetXVert < 0.1 && offsetXVert > -0.1)
 	{
-		Serial.println("Unable to read in old offsetXVert, using hardcoded value instead...");
+		// Serial.println("Unable to read in old offsetXVert, using hardcoded value instead...");
 		offsetXVert = 68.172;
 	}
 	if (offsetYVert < 0.1 && offsetYVert > -0.1)
 	{
-		Serial.println("Unable to read in old offsetYVert, using hardcoded value instead...");
+		// Serial.println("Unable to read in old offsetYVert, using hardcoded value instead...");
 		offsetYVert = 3.213;
 	}
 	if (offsetZVert < 0.1 && offsetZVert > -0.1)
 	{
-		Serial.println("Unable to read in old offsetZVert, using hardcoded value instead...");
+		// Serial.println("Unable to read in old offsetZVert, using hardcoded value instead...");
 		offsetZVert = 1013.33801;
 	}
 	if (offsetXHori < 0.1 && offsetXHori > -0.1)
 	{
-		Serial.println("Unable to read in old offsetXHori, using hardcoded value instead...");
+		// Serial.println("Unable to read in old offsetXHori, using hardcoded value instead...");
 		offsetXHori = 24.436;
 	}
 	if (offsetYHori < 0.1 && offsetYHori > -0.1)
 	{
-		Serial.println("Unable to read in old offsetYHori, using hardcoded value instead...");
+		// Serial.println("Unable to read in old offsetYHori, using hardcoded value instead...");
 		offsetYHori = -1064.93298;
 	}
 	if (offsetZHori < 0.1 && offsetZHori > -0.1)
 	{
-		Serial.println("Unable to read in old offsetZHori, using hardcoded value instead...");
+		// Serial.println("Unable to read in old offsetZHori, using hardcoded value instead...");
 		offsetZHori = 28.983;
 	}
 
@@ -441,17 +489,19 @@ void sendAllDataGoogleSheets()
 		}
 
 		// updateResponse.toString(Serial, true);
-		Serial.print("Free heap: ");
-		Serial.println(ESP.getFreeHeap());
-		Serial.print("Number of rows written: ");
-		Serial.println(numRowWritten);
-		Serial.println();
+		// Serial.print("Free heap: ");
+		// Serial.println(ESP.getFreeHeap());
+		// Serial.print("Number of rows written: ");
+		// Serial.println(numRowWritten);
+		// Serial.println();
 
 		delay(DELAY_PER_SEND);
 	}
 
+	Serial.print("Free heap: ");
+	Serial.println(ESP.getFreeHeap());
 	Serial.printf("Current row number: %d\n", currRowNumber);
-	Serial.printf("Delay for %d seconds to prevent calling API too frequently...\n", DELAY_PER_SAMPLE);
+	Serial.printf("Delay for %d milliseconds to prevent calling API too frequently...\n", DELAY_PER_SAMPLE);
 	delay(DELAY_PER_SAMPLE);
 	isAccTimerTriggered = false;
 }
@@ -662,18 +712,18 @@ void loop()
 		bool success = false;
 		do
 		{
-			Serial.println("Updating of current row number to 11...");
+			// Serial.println("Updating of current row number to 11...");
 			success = GSheet.values.update(&updateResponse,		  // Returned response
 										   SPREADSHEET_ID,		  // Spreadsheet ID to update
 										   updateCurrentRowRange, // Range of data to update
 										   &updateCurrentRow);	  // Array of data to update
-			delay(2000); // Wait for 2 seconds before trying again
+			delay(2000);										  // Wait for 2 seconds before trying again
 		} while (!success);
 
 		// updateResponse.toString(Serial, true);
 
-		Serial.println("Updating of current row number to 11 successful!");
-		Serial.println("Restarting ESP32...");
+		// Serial.println("Updating of current row number to 11 successful!");
+		// Serial.println("Restarting ESP32...");
 		ESP.restart();
 	}
 
@@ -683,6 +733,7 @@ void loop()
 		Serial.printf("Number of samples collected: %d\n", currSample);
 		// double MSE = getARInference(accelYVecVert);
 		sendAllDataGoogleSheets();
+		checkReset();
 
 		delay(1000);
 		acc_timechecker = millis();
