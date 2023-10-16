@@ -9,10 +9,9 @@
 #include "BlynkSimpleEsp32.h"
 #include <Wire.h>
 #include <SPI.h>
+#include <AWS_IOT.h>
 #include "SparkFun_LIS2DH12.h"
 #include "DFRobot_MLX90614.h"
-// #include <Adafruit_MPU6050.h>
-// #include <Adafruit_Sensor.h>
 #include <Arduino.h>
 #include <WiFi.h>
 #include <Preferences.h>
@@ -29,12 +28,24 @@ volatile bool isLEDTimerTriggered = false; // For checking if timer triggered
 int pulseBrightness = RGB_BRIGHTNESS;
 bool pulseDown = true;
 
+// NTP server details
+const char *ntpServer = "pool.ntp.org";
+const long gmtOffset_sec = 8 * 3600;
+const int daylightOffset_sec = 0;
+struct tm timeinfo;
+char str_time[100];
+
 //***************** WiFi/OTA variables *****************
-WiFiClient client;
+WiFiClient otaclient;
 
 // Variables to validate response from S3
 long contentLength = 0;
 bool isValidContentType = false;
+
+//***************** AWS variables *****************
+AWS_IOT aws_iot;
+char payload[100];
+volatile bool sendToAWS = false;
 
 //***************** Blynk variables *****************
 volatile bool OTAAvailable = false;
@@ -78,9 +89,17 @@ float minAccelZHori[10] = {10e9, 10e9, 10e9, 10e9, 10e9, 10e9, 10e9, 10e9, 10e9,
 
 SPARKFUN_LIS2DH12 accelVert; // Create instance
 SPARKFUN_LIS2DH12 accelHori; // Create instance
-// Adafruit_MPU6050 mpu;
 
-TwoWire I2Cone = TwoWire(0);
+TwoWire I2Cone = TwoWire(0); // For acelerometers
+
+//****************** Temperature variables ******************
+// TwoWire I2Ctwo = TwoWire(1);
+// DFRobot_MLX90614_I2C sensor(0x5A, &I2Ctwo); // instantiate an object to drive the temp sensor
+
+//***************** AC Current Sensor variables *****************
+#define ACPin 9
+#define ACTectionRange 20; // set Non-invasive AC Current Sensor tection range (5A,10A,20A)
+#define VREF 3.3
 
 // **************** TF Lite variables ****************
 // Details for model to be tested
@@ -120,6 +139,9 @@ tflite::MicroInterpreter *model_interpreter;
 TfLiteTensor *model_input;
 TfLiteTensor *model_output;
 
+//****************** Generic Functions ******************
+void updateLatestTime();
+
 //***************** RGB Functions *****************
 void setRed();
 void setGreen();
@@ -132,12 +154,17 @@ void setPulsingBlue();
 //***************** Blynk Functions *****************
 BLYNK_CONNECTED()
 {
-	Blynk.syncVirtual(OTA_VPIN);
+	Blynk.syncVirtual(OTA_VPIN, SEND_AWS_VPIN);
 }
 
 BLYNK_WRITE(OTA_VPIN) // To read in whether OTA is available from Blynk
 {
 	OTAAvailable = param.asInt();
+}
+
+BLYNK_WRITE(SEND_AWS_VPIN) // To read in whether to send data to AWS
+{
+	sendToAWS = param.asInt();
 }
 
 //***************** OTA Functions *****************
@@ -147,6 +174,12 @@ void execOTA();
 //***************** Accelerometer Functions *****************
 void getAccelData();
 void normalizeAccelData();
+
+//***************** AC Current Sensor Functions *****************
+float readACCurrentValue();
+
+//***************** AWS Functions *****************
+void publishToAWS();
 
 //***************** TFLite Functions *****************
 void evaluateResults();
@@ -168,6 +201,18 @@ void setup()
 	pinMode(RGB_BUILTIN, OUTPUT);
 	digitalWrite(RGB_BUILTIN, LOW);
 
+	// **************** Accelerometer setup ****************
+	I2Cone.begin(4, 5);
+	Serial.println("I2Cone begin");
+	I2Cone.setClock(1000000);
+	delay(200);
+
+	// **************** Temperature sensor setup ****************
+	// I2Ctwo.begin(6, 7);
+	// I2Ctwo.setClock(1000000);
+	// delay(200);
+
+	// **************** WiFi & RTC setup ****************
 	// Connect to Wifi
 	int numConnection = 0;
 	WiFi.setAutoReconnect(true);
@@ -184,6 +229,9 @@ void setup()
 		numConnection++;
 		delay(300);
 	}
+
+	// Init and get the time
+	configTime(gmtOffset_sec, daylightOffset_sec, ntpServer);
 
 	// Set RGB to blue to indicate successful connection
 	setBlue();
@@ -426,25 +474,6 @@ void loop()
 	{
 		isAccTimerTriggered = false;
 
-		// ********** MPU6050 **********
-		// // float y_value = a.acceleration.y;
-		// accelXVecVert.push_back(a.acceleration.x);
-		// accelXVecHori.push_back(a.acceleration.x);
-
-		// accelYVecVert.push_back(a.acceleration.y);
-		// accelYVecHori.push_back(a.acceleration.y);
-
-		// accelZVecVert.push_back(a.acceleration.z);
-		// accelZVecHori.push_back(a.acceleration.z);
-
-		// // // For normalizing the accelerometer data
-		// // if (y_value > maxAccelYVert) {
-		// // 	maxAccelYVert = y_value;
-		// // }
-		// // if (y_value < minAccelYVert) {
-		// // 	minAccelYVert = y_value;
-		// // }
-
 		// ********** Sparkfun LIS2DH12 **********
 		// getAccelData();
 
@@ -464,12 +493,21 @@ void loop()
 		Serial.println("Inferences done, processing results now");
 		evaluateResults();
 		delay(5000); // Delay to allow user to see whether anomaly was detected from RGB LED
+
+		if (sendToAWS) // If user wants to send data to AWS
+		{
+			Serial.println("Sending to AWS...");
+			publishToAWS();
+		}
+		else
+		{
+			Serial.println("Not sending to AWS");
+		}
+
 		Serial.println("Going into deep sleep...");
+		neopixelWrite(RGB_BUILTIN, 0, 0, 0);
 		esp_sleep_enable_timer_wakeup(deep_sleep_time);
 		esp_deep_sleep_start();
-
-		ledcAttachPin(RGB_BUILTIN, 0);
-		ledcWrite(0, 0);
 	}
 }
 
@@ -740,37 +778,37 @@ String getHeaderValue(String header, String headerName)
 // Function to get flash ESP32 with new firmware
 void execOTA()
 {
-	Serial.printf("Connecting to: %s\n", S3_HOST);
+	Serial.printf("Connecting to: %s\n", AWS_OTA_S3_HOST);
 	// Connect to S3
-	if (client.connect(S3_HOST, S3_PORT))
+	if (otaclient.connect(AWS_OTA_S3_HOST, AWS_OTA_S3_PORT))
 	{
 		// Connection Succeed.
 		// Fecthing the bin
-		Serial.printf("Fetching Bin: %s\n", String(S3_BIN));
+		Serial.printf("Fetching Bin: %s\n", String(AWS_OTA_S3_BIN));
 
 		// Get the contents of the bin file
 		String request = String("GET ");
-		request += S3_BIN;
+		request += AWS_OTA_S3_BIN;
 		request += " HTTP/1.1\r\nHost: ";
-		request += S3_HOST;
+		request += AWS_OTA_S3_HOST;
 		request += "\r\nCache-Control: no-cache\r\nConnection: close\r\n\r\n";
 
-		client.print(request);
+		otaclient.print(request);
 
 		unsigned long timeout = millis();
-		while (client.available() == 0)
+		while (otaclient.available() == 0)
 		{
 			if (millis() - timeout > 5000)
 			{
 				Serial.println("Client Timeout !");
-				client.stop();
+				otaclient.stop();
 				return;
 			}
 		}
 
-		while (client.available())
+		while (otaclient.available())
 		{
-			String line = client.readStringUntil('\n');
+			String line = otaclient.readStringUntil('\n');
 			line.trim();
 
 			if (!line.length())
@@ -808,7 +846,7 @@ void execOTA()
 	}
 	else
 	{
-		Serial.printf("Connection to %s failed. Please check your setup\n", String(S3_HOST));
+		Serial.printf("Connection to %s failed. Please check your setup\n", String(AWS_OTA_S3_HOST));
 	}
 
 	// Check what is the contentLength and if content type is `application/octet-stream`
@@ -826,7 +864,7 @@ void execOTA()
 			Serial.println("OTA in progress...");
 			// No activity would appear on the Serial monitor
 			// So be patient. This may take 2 - 5mins to complete
-			size_t written = Update.writeStream(client);
+			size_t written = Update.writeStream(otaclient);
 
 			if (written == contentLength)
 			{
@@ -861,12 +899,78 @@ void execOTA()
 		{
 			// not enough space to begin OTA
 			Serial.println("Not enough space to begin OTA");
-			client.flush();
+			otaclient.flush();
 		}
 	}
 	else
 	{
 		Serial.println("There was no content in the response");
-		client.flush();
+		otaclient.flush();
 	}
+}
+
+// **************** AWS Utility Functions ****************
+void publishToAWS()
+{
+	// Connect to AWS
+	int numConnection = 0;
+	Serial.println("Starting connection with AWS");
+	if (aws_iot.connect(AWS_IOT_HOST, AWS_IOT_CLIENT_ID) != 0 && numConnection < 15)
+	{
+		Serial.println("Not connected to AWS, retrying...");
+		numConnection++;
+		delay(300);
+	}
+	else
+	{
+		Serial.println("Connected to AWS!");
+	}
+
+	String message = "";
+	int num_success = 0;
+	for (int i = 0; i < NUM_PER_SAMPLE; i++)
+	{
+		message += String(accelXVecVert[i]) + "," + String(accelYVecVert[i]) + "," + String(accelZVecVert[i]) + "," + String(accelXVecHori[i]) + "," + String(accelYVecHori[i]) + "," + String(accelZVecHori[i]) + "\n";
+		message.toCharArray(payload, sizeof(payload));
+		if (aws_iot.publish(AWS_IOT_MQTT_TOPIC, payload) == 0)
+		{
+			num_success++;
+		}
+		delay(100);
+	}
+	Serial.println("Number of successful publishes: " + String(num_success));
+}
+
+// **************** AC Current Functions ****************
+float readACCurrentValue()
+{
+	float ACCurrentValue = 0;
+	float peakVoltage = 0;
+	float voltageVirtualValue = 0; // Vrms
+	for (int i = 0; i < 20; i++)
+	{
+		peakVoltage += analogRead(ACPin); // read peak voltage
+		delay(1);
+	}
+	peakVoltage = peakVoltage / 20;
+	voltageVirtualValue = peakVoltage * 0.707; // change the peak voltage to the Virtual Value of voltage
+
+	/*The circuit is amplified by 2 times, so it is divided by 2.*/
+	voltageVirtualValue = (voltageVirtualValue / 1024 * VREF) / 2;
+
+	ACCurrentValue = voltageVirtualValue * ACTectionRange;
+
+	return ACCurrentValue;
+}
+
+// **************** Generic Functions ****************
+void updateLatestTime()
+{
+	if (!getLocalTime(&timeinfo))
+	{
+		Serial.println("Failed to obtain time, attempting to resync with NTP server...");
+		configTime(gmtOffset_sec, daylightOffset_sec, ntpServer);
+		return;
+	}
+	strftime(str_time, sizeof(str_time), "%Y-%m-%d %H:%M:%S", &timeinfo);
 }
