@@ -23,10 +23,8 @@ using namespace std;
 //***************** Generic variables *****************
 unsigned long long deep_sleep_time = 1000000ULL * 10 * 1 * 1; // Time to sleep in microseconds (10seconds)
 Preferences preferences;
-int mode;								   // 0 for autoencoder, 1 for classifier
-volatile bool isLEDTimerTriggered = false; // For checking if timer triggered
-int pulseBrightness = RGB_BRIGHTNESS;
-bool pulseDown = true;
+int mode;			// 0 for autoencoder, 1 for classifier
+bool ledOn = false; // Used for blinking the LED
 
 // NTP server details
 const char *ntpServer = "pool.ntp.org";
@@ -149,7 +147,7 @@ void setBlue();
 void setPurple();
 void setOrange();
 void setYellow();
-void setPulsingBlue();
+void toggleBlueLED();
 
 //***************** Blynk Functions *****************
 BLYNK_CONNECTED()
@@ -188,7 +186,6 @@ void evaluateResults();
 void IRAM_ATTR onTimer()
 {
 	isAccTimerTriggered = true; // Indicates that the interrupt has been entered since the last time its value was changed to false
-	isLEDTimerTriggered = true;
 }
 
 // Set up the ESP32's environment.
@@ -460,9 +457,11 @@ void loop()
 			curr_inference_count++;
 			total_inference_count++;
 			// Serial.println("Inference count: " + String(curr_inference_count));
+			
 			delay(10);
 		}
 
+		toggleBlueLED(); // Toggle the blue LED to indicate that inference has been done
 		numSamples = 0; // Reset the number of samples taken
 		Serial.println("Inference count: " + String(total_inference_count));
 		// Check amount of free heap space after running model
@@ -542,29 +541,18 @@ void setYellow()
 	neopixelWrite(RGB_BUILTIN, RGB_BRIGHTNESS, RGB_BRIGHTNESS, 0);
 }
 
-void setPulsingBlue()
+void toggleBlueLED()
 {
-	if (isLEDTimerTriggered)
+	// Toggle the LED state
+	if (ledOn)
 	{
-		isLEDTimerTriggered = false;
-		if (pulseDown)
-		{
-			pulseBrightness--;
-			if (pulseBrightness == 0)
-			{
-				pulseDown = false;
-			}
-		}
-		else
-		{
-			pulseBrightness++;
-			if (pulseBrightness == RGB_BRIGHTNESS)
-			{
-				pulseDown = true;
-			}
-		}
-
-		neopixelWrite(RGB_BUILTIN, 0, 0, pulseBrightness);
+		neopixelWrite(RGB_BUILTIN, 0, 0, RGB_BRIGHTNESS);
+		ledOn = false;
+	}
+	else
+	{
+		neopixelWrite(RGB_BUILTIN, 0, 0, 0);
+		ledOn = true;
 	}
 }
 
