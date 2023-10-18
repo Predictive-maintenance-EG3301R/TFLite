@@ -58,12 +58,12 @@ int accSamplingRate = 1000;				   // Sampling rate in Hz, max is 1000Hz
 hw_timer_t *acc_timer = NULL;			   // Timer object
 
 // Offset values for the accelerometers
-float offsetXVert = 0.0;
-float offsetYVert = 0.0;
-float offsetZVert = 0.0;
-float offsetXHori = 0.0;
-float offsetYHori = 0.0;
-float offsetZHori = 0.0;
+float offsetXVert = 68.172;
+float offsetYVert = 3.213;
+float offsetZVert = 1013.33801;
+float offsetXHori = 24.436;
+float offsetYHori = -1064.93298;
+float offsetZHori = 28.983;
 float accelXVecVert[1000];
 float accelYVecVert[1000];
 float accelZVecVert[1000];
@@ -91,8 +91,8 @@ SPARKFUN_LIS2DH12 accelHori; // Create instance
 TwoWire I2Cone = TwoWire(0); // For acelerometers
 
 //****************** Temperature variables ******************
-// TwoWire I2Ctwo = TwoWire(1);
-// DFRobot_MLX90614_I2C sensor(0x5A, &I2Ctwo); // instantiate an object to drive the temp sensor
+TwoWire I2Ctwo = TwoWire(1);
+DFRobot_MLX90614_I2C sensor(0x5A, &I2Ctwo); // instantiate an object to drive the temp sensor
 
 //***************** AC Current Sensor variables *****************
 #define ACPin 9
@@ -103,7 +103,7 @@ TwoWire I2Cone = TwoWire(0); // For acelerometers
 // Details for model to be tested
 #define AUTOENCODER_INPUT_SIZE 100	 // Per axis
 #define CLASSIFICATION_INPUT_SIZE 96 // Per axis
-#define NUM_INFERENCE_SAMPLES 200
+#define NUM_INFERENCE_SAMPLES 20
 #define NUM_AXIS 6
 #define NUM_CATEGORIES 3
 
@@ -199,15 +199,38 @@ void setup()
 	digitalWrite(RGB_BUILTIN, LOW);
 
 	// **************** Accelerometer setup ****************
-	I2Cone.begin(4, 5);
+	// Wire.begin(5,4);
+	I2Cone.begin(5, 4);
 	Serial.println("I2Cone begin");
 	I2Cone.setClock(1000000);
 	delay(200);
+	Serial.println("I2Cone setup done");
+
+	if (accelVert.begin(0x18, I2Cone) == false)
+	{
+		Serial.println("Accelerometer 1 not detected. Check address jumper and wiring. Freezing...");
+		while (1)
+			;
+	}
+
+	if (accelHori.begin(0x19, I2Cone) == false)
+	{
+		Serial.println("Accelerometer 2 not detected. Check address jumper and wiring. Freezing...");
+		while (1)
+			;
+	};
 
 	// **************** Temperature sensor setup ****************
-	// I2Ctwo.begin(6, 7);
-	// I2Ctwo.setClock(1000000);
-	// delay(200);
+	I2Ctwo.begin(7, 6);
+	I2Ctwo.setClock(1000000);
+	delay(200);
+	// Init the temperature sensor
+	while (NO_ERR != sensor.begin())
+	{
+		Serial.println("Communication with temperature sensor failed, please check connection");
+		delay(3000);
+	}
+	Serial.println("Temperature sensor init successful!");
 
 	// **************** WiFi & RTC setup ****************
 	// Connect to Wifi
@@ -266,6 +289,7 @@ void setup()
 	// Check which mode is supposed to be in
 	preferences.begin("mode", false);	  // Open preferences with write access
 	mode = preferences.getInt("mode", 0); // Get the value of the key; if not present, return default value of 0
+	mode = 1;
 	preferences.end();
 
 	// Load the correct model based on the mode
@@ -319,6 +343,7 @@ void setup()
 	unsigned int timerFactor = 1000000 / accSamplingRate; // Calculate the time interval between two readings, or more accurately, the number of cycles between two readings
 	timerAlarmWrite(acc_timer, timerFactor, true);		  // Initialize the timer
 	timerAlarmEnable(acc_timer);
+	Serial.println("Timer interrupt setup done!");
 }
 
 // Logic loop for taking user input and outputting the FFT
@@ -335,6 +360,13 @@ void loop()
 
 		// Normalizing the accelerometer data first
 		normalizeAccelData();
+
+		// Print first 10 values of each axis
+		Serial.println("XVert:");
+		for (int i = 0; i < 10; i++)
+		{
+			Serial.println(String(accelXVecVert[i]));
+		}
 
 		// Each sample of 1000ms can be split into 10 samples of 100ms for inference
 		int curr_inference_count = 0;
@@ -443,26 +475,29 @@ void loop()
 				if (max_index == 1)
 				{
 					num_healthy++;
+					Serial.println("Healthy");
 				}
 				else if (max_index == 2)
 				{
 					num_loose++;
+					Serial.println("Loose");
 				}
 				else
 				{
 					num_cavitation++;
+					Serial.println("Cavitation");
 				}
 			}
 
 			curr_inference_count++;
 			total_inference_count++;
-			// Serial.println("Inference count: " + String(curr_inference_count));
-			
+			Serial.println("Inference count: " + String(curr_inference_count));
+
 			delay(10);
 		}
 
 		toggleBlueLED(); // Toggle the blue LED to indicate that inference has been done
-		numSamples = 0; // Reset the number of samples taken
+		numSamples = 0;	 // Reset the number of samples taken
 		Serial.println("Inference count: " + String(total_inference_count));
 		// Check amount of free heap space after running model
 		Serial.print("Free heap after running model: ");
@@ -474,15 +509,15 @@ void loop()
 		isAccTimerTriggered = false;
 
 		// ********** Sparkfun LIS2DH12 **********
-		// getAccelData();
+		getAccelData();
 
 		// ********** Dummy data **********
-		accelXVecVert[numSamples] = 0.0;
-		accelXVecHori[numSamples] = 0.0;
-		accelYVecVert[numSamples] = 0.0;
-		accelYVecHori[numSamples] = 0.0;
-		accelZVecVert[numSamples] = 0.0;
-		accelZVecHori[numSamples] = 0.0;
+		// accelXVecVert[numSamples] = 0.0;
+		// accelXVecHori[numSamples] = 0.0;
+		// accelYVecVert[numSamples] = 0.0;
+		// accelYVecHori[numSamples] = 0.0;
+		// accelZVecVert[numSamples] = 0.0;
+		// accelZVecHori[numSamples] = 0.0;
 
 		numSamples++; // Increment the number of samples taken
 	}
@@ -560,9 +595,12 @@ void toggleBlueLED()
 // To get the readings from the accelerometer & update min and max values for normalizing
 void getAccelData()
 {
+	// Serial.println("Getting accelerometer data...");
 	// Get XVert data and update min and max for normalizing
 	float currXVert = accelVert.getX() - offsetXVert;
+	// float currXVert = 0;
 	int currIdx = numSamples / 100;
+	// Serial.println("Current index: " + String(currIdx));
 
 	if (currXVert > maxAccelXVert[currIdx])
 	{
@@ -859,10 +897,14 @@ void execOTA()
 				Serial.printf("Written : %s successfully\n", String(written));
 				Blynk.virtualWrite(OTA_VPIN, 0); // Set OTA_VPIN to 0
 				Serial.printf("Setting OTA_VPIN to 0 to indicate OTA successful\n");
+				// Set to green when successful
+				neopixelWrite(RGB_BUILTIN, 0, RGB_BRIGHTNESS, 0);
 			}
 			else
 			{
 				Serial.printf("Written only : %s/%s. Retry?\n", String(written), String(contentLength));
+				// Set to red when unsuccessful
+				neopixelWrite(RGB_BUILTIN, RGB_BRIGHTNESS, 0, 0);
 			}
 
 			if (Update.end())
@@ -876,11 +918,15 @@ void execOTA()
 				else
 				{
 					Serial.println("Update not finished? Something went wrong!");
+					// Set to red when unsuccessful
+					neopixelWrite(RGB_BUILTIN, RGB_BRIGHTNESS, 0, 0);
 				}
 			}
 			else
 			{
 				Serial.printf("Error Occurred. Error #: %s\n", String(Update.getError()));
+				// Set to red when unsuccessful
+				neopixelWrite(RGB_BUILTIN, RGB_BRIGHTNESS, 0, 0);
 			}
 		}
 		else
