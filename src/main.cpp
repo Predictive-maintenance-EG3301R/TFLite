@@ -33,7 +33,7 @@ limitations under the License.
 
 int aboveMSE = 0;
 int belowMSE = 0;
-float threshold = 0.035210764766801725;
+float threshold = 0.19796437796948085;
 
 // For Google sheets debugging
 void tokenStatusCallback(TokenInfo info);
