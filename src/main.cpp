@@ -5,7 +5,7 @@
 #include "tensorflow/lite/micro/micro_interpreter.h"
 #include "tensorflow/lite/schema/schema_generated.h"
 #include "cnn_model_fullint_vibeonly.h"
-#include "AR_model.h"
+#include "autoencoder_1dcnn_model.h"
 #include "BlynkSimpleEsp32.h"
 #include <Wire.h>
 #include <SPI.h>
@@ -58,12 +58,12 @@ int accSamplingRate = 1000;				   // Sampling rate in Hz, max is 1000Hz
 hw_timer_t *acc_timer = NULL;			   // Timer object
 
 // Offset values for the accelerometers
-float offsetXVert = 68.172;
-float offsetYVert = 3.213;
-float offsetZVert = 1013.33801;
-float offsetXHori = 24.436;
-float offsetYHori = -1064.93298;
-float offsetZHori = 28.983;
+float offsetXVert = 65.058;
+float offsetYVert = 10.662;
+float offsetZVert = 1017.08398;
+float offsetXHori = 5.171;
+float offsetYHori = -1058.53503;
+float offsetZHori = 38.316;
 float accelXVecVert[1000];
 float accelYVecVert[1000];
 float accelZVecVert[1000];
@@ -101,7 +101,7 @@ DFRobot_MLX90614_I2C sensor(0x5A, &I2Ctwo); // instantiate an object to drive th
 
 // **************** TF Lite variables ****************
 // Details for model to be tested
-#define AUTOENCODER_INPUT_SIZE 100	 // Per axis
+#define AUTOENCODER_INPUT_SIZE 26	 // Per axis
 #define CLASSIFICATION_INPUT_SIZE 96 // Per axis
 #define NUM_INFERENCE_SAMPLES 20
 #define NUM_AXIS 6
@@ -118,7 +118,7 @@ int max_index = 0;
 float max_output = 0.0;
 
 // For autoencoder
-float mse_threshold = 0.02774564472135648; // Value obtained from training
+float mse_threshold = 0.035210764766801725; // Value obtained from training
 float output_mse = 0;
 int num_anomaly = 0;
 bool anomaly_detected = false;
@@ -152,7 +152,7 @@ void toggleBlueLED();
 //***************** Blynk Functions *****************
 BLYNK_CONNECTED()
 {
-	Blynk.syncVirtual(OTA_VPIN, SEND_AWS_VPIN);
+	Blynk.syncVirtual(OTA_VPIN, SEND_AWS_VPIN, CAVITATION_COUNT_VPIN, HEALTHY_COUNT_VPIN, LOOSE_COUNT_VPIN);
 }
 
 BLYNK_WRITE(OTA_VPIN) // To read in whether OTA is available from Blynk
@@ -163,6 +163,21 @@ BLYNK_WRITE(OTA_VPIN) // To read in whether OTA is available from Blynk
 BLYNK_WRITE(SEND_AWS_VPIN) // To read in whether to send data to AWS
 {
 	sendToAWS = param.asInt();
+}
+
+BLYNK_WRITE(CAVITATION_COUNT_VPIN) // To read in the number of cavitation events
+{
+	num_cavitation = param.asInt();
+}
+
+BLYNK_WRITE(HEALTHY_COUNT_VPIN) // To read in the number of healing events
+{
+	num_healthy = param.asInt();
+}
+
+BLYNK_WRITE(LOOSE_COUNT_VPIN) // To read in the number of loose events
+{
+	num_loose = param.asInt();
 }
 
 //***************** OTA Functions *****************
@@ -186,6 +201,7 @@ void evaluateResults();
 void IRAM_ATTR onTimer()
 {
 	isAccTimerTriggered = true; // Indicates that the interrupt has been entered since the last time its value was changed to false
+	Blynk.run();
 }
 
 // Set up the ESP32's environment.
@@ -197,40 +213,6 @@ void setup()
 	// Set up LED
 	pinMode(RGB_BUILTIN, OUTPUT);
 	digitalWrite(RGB_BUILTIN, LOW);
-
-	// **************** Accelerometer setup ****************
-	// Wire.begin(5,4);
-	I2Cone.begin(5, 4);
-	Serial.println("I2Cone begin");
-	I2Cone.setClock(1000000);
-	delay(200);
-	Serial.println("I2Cone setup done");
-
-	if (accelVert.begin(0x18, I2Cone) == false)
-	{
-		Serial.println("Accelerometer 1 not detected. Check address jumper and wiring. Freezing...");
-		while (1)
-			;
-	}
-
-	if (accelHori.begin(0x19, I2Cone) == false)
-	{
-		Serial.println("Accelerometer 2 not detected. Check address jumper and wiring. Freezing...");
-		while (1)
-			;
-	};
-
-	// **************** Temperature sensor setup ****************
-	I2Ctwo.begin(7, 6);
-	I2Ctwo.setClock(1000000);
-	delay(200);
-	// Init the temperature sensor
-	while (NO_ERR != sensor.begin())
-	{
-		Serial.println("Communication with temperature sensor failed, please check connection");
-		delay(3000);
-	}
-	Serial.println("Temperature sensor init successful!");
 
 	// **************** WiFi & RTC setup ****************
 	// Connect to Wifi
@@ -286,17 +268,81 @@ void setup()
 
 	Blynk.virtualWrite(FIRMWARE_VERSION_VPIN, FIRMWARE_VERSION);
 
+	// **************** Accelerometer setup ****************
+	I2Cone.begin(5, 4);
+	Serial.println("I2Cone begin");
+	I2Cone.setClock(1000000);
+	delay(200);
+	Serial.println("I2Cone setup done");
+
+	if (accelVert.begin(0x18, I2Cone) == false)
+	{
+		Serial.println("Accelerometer 1 not detected. Check address jumper and wiring. Restarting...");
+		Blynk.virtualWrite(ACCEL1_CONNECTION_VPIN, 0);
+		delay(100);
+		ESP.restart();
+	}
+
+	// Update accel 1 connection status on Blynk
+	Blynk.virtualWrite(ACCEL1_CONNECTION_VPIN, 1);
+
+	if (accelHori.begin(0x19, I2Cone) == false)
+	{
+		Serial.println("Accelerometer 2 not detected. Check address jumper and wiring. Restarting...");
+		Blynk.virtualWrite(ACCEL2_CONNECTION_VPIN, 0);
+		delay(100);
+		ESP.restart();
+	};
+
+	// Update accel 2 connection status on Blynk
+	Blynk.virtualWrite(ACCEL2_CONNECTION_VPIN, 1);
+
+	accelVert.setScale(LIS2DH12_2g);							  // Set full-scale range to 2g
+	accelVert.setMode(LIS2DH12_HR_12bit);						  // Set operating mode to low power
+	accelVert.setDataRate(LIS2DH12_ODR_5kHz376_LP_1kHz344_NM_HP); // Set data rate to 1Khz Hz
+
+	accelHori.setScale(LIS2DH12_2g);							  // Set full-scale range to 2g
+	accelHori.setMode(LIS2DH12_HR_12bit);						  // Set operating mode to low power
+	accelHori.setDataRate(LIS2DH12_ODR_5kHz376_LP_1kHz344_NM_HP); // Set data rate to 1Khz Hz
+
+	// **************** Temperature sensor setup ****************
+	I2Ctwo.begin(7, 6);
+	I2Ctwo.setClock(1000000);
+	delay(200);
+	// Init the temperature sensor
+	int num_tries = 0;
+	while (NO_ERR != sensor.begin() && num_tries < 15)
+	{
+		Serial.println("Trying to connect to temperature sensor...");
+		num_tries++;
+		delay(100);
+	}
+
+	if (num_tries >= 15)
+	{
+		Serial.println("Communication with temperature sensor failed, please check connection");
+		Blynk.virtualWrite(TEMP_CONNECTION_VPIN, 0);
+		delay(100);
+		ESP.restart();
+	}
+
+	// Update temp sensor connection status on Blynk
+	Blynk.virtualWrite(TEMP_CONNECTION_VPIN, 1);
+	Serial.println("Temperature sensor init successful!");
+
+	// ********** Loading of correct model **********
+
 	// Check which mode is supposed to be in
 	preferences.begin("mode", false);	  // Open preferences with write access
 	mode = preferences.getInt("mode", 0); // Get the value of the key; if not present, return default value of 0
-	mode = 1;
+	mode = 1;							  // !! LOADING CLASSIFIER MODEL FOR NOW FOR TESTING
 	preferences.end();
 
 	// Load the correct model based on the mode
 	if (mode == 0)
 	{ // Load autoencoder model if mode == 0
 		Serial.println("Loading autoencoder model....");
-		ML_model = tflite::GetModel(AR_model_fullint_quantized_tflite); // Model not yet confirmed
+		ML_model = tflite::GetModel(autoencoder_1dcnn_model_tflite); // Model not yet confirmed
 		Serial.println("Autoencoder model loaded!");
 	}
 	else
@@ -356,17 +402,10 @@ void loop()
 		Serial.println(String(ESP.getFreeHeap()));
 
 		// Test the model with some dummy data
-		Serial.println("Testing model with dummy data...");
+		// Serial.println("Testing model with dummy data...");
 
 		// Normalizing the accelerometer data first
 		normalizeAccelData();
-
-		// Print first 10 values of each axis
-		Serial.println("XVert:");
-		for (int i = 0; i < 10; i++)
-		{
-			Serial.println(String(accelXVecVert[i]));
-		}
 
 		// Each sample of 1000ms can be split into 10 samples of 100ms for inference
 		int curr_inference_count = 0;
@@ -390,7 +429,7 @@ void loop()
 				// Load the data into the interpreter
 				for (int i = 0; i < CLASSIFICATION_INPUT_SIZE; i++)
 				{
-					model_input->data.f[i] = accelXVecVert[i];
+					model_input->data.f[i] = accelXVecVert[i + (curr_inference_count * 100)];
 					model_input->data.f[i + CLASSIFICATION_INPUT_SIZE] = accelYVecVert[i + (curr_inference_count * 100)];
 					model_input->data.f[i + (2 * CLASSIFICATION_INPUT_SIZE)] = accelZVecVert[i + (curr_inference_count * 100)];
 					model_input->data.f[i + (3 * CLASSIFICATION_INPUT_SIZE)] = accelXVecHori[i + (curr_inference_count * 100)];
@@ -528,6 +567,16 @@ void loop()
 		evaluateResults();
 		delay(5000); // Delay to allow user to see whether anomaly was detected from RGB LED
 
+		// Send AC current sensor to Blynk
+		float currACValue = readACCurrentValue();
+		Blynk.virtualWrite(AC_READING_VPIN, currACValue);
+
+		// Send temperature sensor to Blynk
+		float ambientTemp = sensor.getAmbientTempCelsius();
+		float objectTemp = sensor.getObjectTempCelsius();
+		Blynk.virtualWrite(TEMP_AMBIENT_VPIN, ambientTemp);
+		Blynk.virtualWrite(TEMP_OBJECT_VPIN, objectTemp);
+
 		if (sendToAWS) // If user wants to send data to AWS
 		{
 			Serial.println("Sending to AWS...");
@@ -537,6 +586,9 @@ void loop()
 		{
 			Serial.println("Not sending to AWS");
 		}
+
+		// Update latest time on Blynk
+		updateLatestTime();
 
 		Serial.println("Going into deep sleep...");
 		neopixelWrite(RGB_BUILTIN, 0, 0, 0);
@@ -574,6 +626,11 @@ void setOrange()
 void setYellow()
 {
 	neopixelWrite(RGB_BUILTIN, RGB_BRIGHTNESS, RGB_BRIGHTNESS, 0);
+}
+
+void setWhite()
+{
+	neopixelWrite(RGB_BUILTIN, RGB_BRIGHTNESS, RGB_BRIGHTNESS, RGB_BRIGHTNESS);
 }
 
 void toggleBlueLED()
@@ -769,12 +826,12 @@ void evaluateResults()
 		else if (percentage_loose >= percentage_healthy && percentage_loose >= percentage_cavitation)
 		{
 			Serial.println("Pump is loose!");
-			setYellow();
+			setOrange();
 		}
 		else
 		{
 			Serial.println("Pump is cavitation!");
-			setOrange();
+			setWhite();
 		}
 	}
 
@@ -791,6 +848,14 @@ void evaluateResults()
 		preferences.putInt("mode", 0);
 	}
 	preferences.end();
+
+	// Send count to Blynk
+	Blynk.virtualWrite(CAVITATION_COUNT_VPIN, num_cavitation);
+	delay(100);
+	Blynk.virtualWrite(LOOSE_COUNT_VPIN, num_loose);
+	delay(100);
+	Blynk.virtualWrite(HEALTHY_COUNT_VPIN, num_healthy);
+	delay(100);
 };
 
 // **************** OTA Utility Functions ****************
@@ -1007,4 +1072,5 @@ void updateLatestTime()
 		return;
 	}
 	strftime(str_time, sizeof(str_time), "%Y-%m-%d %H:%M:%S", &timeinfo);
+	Blynk.virtualWrite(LATEST_TIME_VPIN, str_time);
 }
