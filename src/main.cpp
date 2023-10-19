@@ -703,39 +703,13 @@ void setModelInput(int curr_set)
 	}
 	else // For classification model
 	{
-		// Load the data into the interpreter
-		// for (int i = 0; i < CLASSIFICATION_INPUT_SIZE; i++)
-		// {
-		// 	model_input->data.f[i] = accelXVecVert[i + (curr_set * CLASSIFICATION_INPUT_SIZE)];
-		// 	model_input->data.f[i + CLASSIFICATION_INPUT_SIZE] = accelYVecVert[i + (curr_set * CLASSIFICATION_INPUT_SIZE)];
-		// 	model_input->data.f[i + (2 * CLASSIFICATION_INPUT_SIZE)] = accelZVecVert[i + (curr_set * CLASSIFICATION_INPUT_SIZE)];
-		// 	model_input->data.f[i + (3 * CLASSIFICATION_INPUT_SIZE)] = accelXVecHori[i + (curr_set * CLASSIFICATION_INPUT_SIZE)];
-		// 	model_input->data.f[i + (4 * CLASSIFICATION_INPUT_SIZE)] = accelYVecHori[i + (curr_set * CLASSIFICATION_INPUT_SIZE)];
-		// 	model_input->data.f[i + (5 * CLASSIFICATION_INPUT_SIZE)] = accelZVecHori[i + (curr_set * CLASSIFICATION_INPUT_SIZE)];
-		// }
-
 		for (int i = 0; i < CLASSIFICATION_INPUT_SIZE; i++)
 		{
 			model_input->data.f[i] = accelXVecVert[i + (curr_set * CLASSIFICATION_INPUT_SIZE)];
-		}
-		for (int i = CLASSIFICATION_INPUT_SIZE; i < 2 * CLASSIFICATION_INPUT_SIZE; i++)
-		{
 			model_input->data.f[i + CLASSIFICATION_INPUT_SIZE] = accelYVecVert[i + (curr_set * CLASSIFICATION_INPUT_SIZE)];
-		}
-		for (int i = 2 * CLASSIFICATION_INPUT_SIZE; i < 3 * CLASSIFICATION_INPUT_SIZE; i++)
-		{
 			model_input->data.f[i + (2 * CLASSIFICATION_INPUT_SIZE)] = accelZVecVert[i + (curr_set * CLASSIFICATION_INPUT_SIZE)];
-		}
-		for (int i = 3 * CLASSIFICATION_INPUT_SIZE; i < 4 * CLASSIFICATION_INPUT_SIZE; i++)
-		{
 			model_input->data.f[i + (3 * CLASSIFICATION_INPUT_SIZE)] = accelXVecHori[i + (curr_set * CLASSIFICATION_INPUT_SIZE)];
-		}
-		for (int i = 4 * CLASSIFICATION_INPUT_SIZE; i < 5 * CLASSIFICATION_INPUT_SIZE; i++)
-		{
 			model_input->data.f[i + (4 * CLASSIFICATION_INPUT_SIZE)] = accelYVecHori[i + (curr_set * CLASSIFICATION_INPUT_SIZE)];
-		}
-		for (int i = 5 * CLASSIFICATION_INPUT_SIZE; i < 6 * CLASSIFICATION_INPUT_SIZE; i++)
-		{
 			model_input->data.f[i + (5 * CLASSIFICATION_INPUT_SIZE)] = accelZVecHori[i + (curr_set * CLASSIFICATION_INPUT_SIZE)];
 		}
 	}
