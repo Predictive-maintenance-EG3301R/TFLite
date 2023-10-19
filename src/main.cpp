@@ -17,7 +17,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 ==============================================================================*/
 
-#define ROW_SIZE 25 // 20 for 1d array, 24 for 2d array
+#define ROW_SIZE 24 // 20 for 1d array, 24 for 2d array
 #define DIM_RGB_BRIGHTNESS 10
 
 #include "tensorflow/lite/micro/all_ops_resolver.h"
@@ -25,21 +25,16 @@ limitations under the License.
 #include "tensorflow/lite/micro/micro_interpreter.h"
 #include "tensorflow/lite/schema/schema_generated.h"
 #include "cnn_model_fullint_vibeonly.h"
-#include "autoencoder_1dcnn_model.h"
 #include <Arduino.h>
 #include <WiFi.h>
 #include <ESP_Google_Sheet_Client.h>
 #include <secrets.h>
 
-int aboveMSE = 0;
-int belowMSE = 0;
-float threshold = 0.19796437796948085;
-
 // For Google sheets debugging
 void tokenStatusCallback(TokenInfo info);
 
 // Create a memory pool for the nodes in the network
-constexpr int CNN_tensor_pool_size = 100 * 1024;
+constexpr int CNN_tensor_pool_size = 60 * 1024;
 alignas(16) uint8_t CNN_tensor_pool[CNN_tensor_pool_size];
 
 // Define the model to be used
@@ -59,12 +54,12 @@ TfLiteTensor *CNN_output;
 
 // Create vector to store value read in
 // For 1D
-std::vector<float> accelXVecVert;
-std::vector<float> accelYVecVert;
-std::vector<float> accelZVecVert;
-std::vector<float> accelXVecHori;
-std::vector<float> accelYVecHori;
-std::vector<float> accelZVecHori;
+// std::vector<float> accelXVecVert;
+// std::vector<float> accelYVecVert;
+// std::vector<float> accelZVecVert;
+// std::vector<float> accelXVecHori;
+// std::vector<float> accelYVecHori;
+// std::vector<float> accelZVecHori;
 
 // For 2D
 // std::vector<std::vector<float>> accelXVecVert(4, std::vector<float>(24));
@@ -73,6 +68,13 @@ std::vector<float> accelZVecHori;
 // std::vector<std::vector<float>> accelXVecHori(4, std::vector<float>(24));
 // std::vector<std::vector<float>> accelYVecHori(4, std::vector<float>(24));
 // std::vector<std::vector<float>> accelZVecHori(4, std::vector<float>(24));
+
+float accelXVecVert[1000];
+float accelYVecVert[1000];
+float accelZVecVert[1000];
+float accelXVecHori[1000];
+float accelYVecHori[1000];
+float accelZVecHori[1000];
 
 // For normalizing the accelerometer data
 float maxAccelXVert = -10e9;
@@ -88,9 +90,9 @@ float minAccelYHori = 10e9;
 float maxAccelZHori = -10e9;
 float minAccelZHori = 10e9;
 
-// int num_healthy = 0;
-// int num_cavitation = 0;
-// int num_loosebase = 0;
+int num_healthy = 0;
+int num_cavitation = 0;
+int num_loosebase = 0;
 
 // For Google sheets debugging
 void tokenStatusCallback(TokenInfo info)
@@ -121,7 +123,7 @@ void setup()
 	// ********************** Loading of CNN Model ************************
 	// Load the AR model
 	Serial.println("Loading Tensorflow model....");
-	CNN_model = tflite::GetModel(autoencoder_1dcnn_model_tflite);
+	CNN_model = tflite::GetModel(cnn_model_fullint_vibeonly_tflite);
 	Serial.println("CNN model loaded!");
 
 	// Define ops resolver and error reporting
@@ -240,91 +242,91 @@ void loop()
 				data.get<FirebaseJsonArray>(dataArr);
 
 				// For 1D
-				dataArr.get(data, 0);
-				accelXVecVert.push_back(data.to<String>().toFloat());
-				dataArr.get(data, 1);
-				accelYVecVert.push_back(data.to<String>().toFloat());
-				dataArr.get(data, 2);
-				accelZVecVert.push_back(data.to<String>().toFloat());
-				dataArr.get(data, 3);
-				accelXVecHori.push_back(data.to<String>().toFloat());
-				dataArr.get(data, 4);
-				accelYVecHori.push_back(data.to<String>().toFloat());
-				dataArr.get(data, 5);
-				accelZVecHori.push_back(data.to<String>().toFloat());
+				// dataArr.get(data, 0);
+				// accelXVecVert.push_back(data.to<String>().toFloat());
+				// dataArr.get(data, 1);
+				// accelYVecVert.push_back(data.to<String>().toFloat());
+				// dataArr.get(data, 2);
+				// accelZVecVert.push_back(data.to<String>().toFloat());
+				// dataArr.get(data, 3);
+				// accelXVecHori.push_back(data.to<String>().toFloat());
+				// dataArr.get(data, 4);
+				// accelYVecHori.push_back(data.to<String>().toFloat());
+				// dataArr.get(data, 5);
+				// accelZVecHori.push_back(data.to<String>().toFloat());
 
 				// For 2D
-				// dataArr.get(data, 0);
-				// accelXVecVert[a][j] = data.to<String>().toFloat();
-				// // Get max and min values for XVert
-				// if (accelXVecVert[a][j] > maxAccelXVert)
-				// {
-				// 	maxAccelXVert = accelXVecVert[a][j];
-				// }
-				// if (accelXVecVert[a][j] < minAccelXVert)
-				// {
-				// 	minAccelXVert = accelXVecVert[a][j];
-				// }
+				dataArr.get(data, 0);
+				accelXVecVert[(a * ROW_SIZE) + j] = data.to<String>().toFloat();
+				// Get max and min values for XVert
+				if (accelXVecVert[(a * ROW_SIZE) + j] > maxAccelXVert)
+				{
+					maxAccelXVert = accelXVecVert[(a * ROW_SIZE) + j];
+				}
+				if (accelXVecVert[(a * ROW_SIZE) + j] < minAccelXVert)
+				{
+					minAccelXVert = accelXVecVert[(a * ROW_SIZE) + j];
+				}
 
-				// // Get max and min values for YVert
-				// dataArr.get(data, 1);
-				// accelYVecVert[a][j] = data.to<String>().toFloat();
-				// if (accelYVecVert[a][j] > maxAccelYVert)
-				// {
-				// 	maxAccelYVert = accelYVecVert[a][j];
-				// }
-				// if (accelYVecVert[a][j] < minAccelYVert)
-				// {
-				// 	minAccelYVert = accelYVecVert[a][j];
-				// }
+				// Get max and min values for YVert
+				dataArr.get(data, 1);
+				accelYVecVert[(a * ROW_SIZE) + j] = data.to<String>().toFloat();
+				if (accelYVecVert[(a * ROW_SIZE) + j] > maxAccelYVert)
+				{
+					maxAccelYVert = accelYVecVert[(a * ROW_SIZE) + j];
+				}
+				if (accelYVecVert[(a * ROW_SIZE) + j] < minAccelYVert)
+				{
+					minAccelYVert = accelYVecVert[(a * ROW_SIZE) + j];
+				}
 
-				// // Get max and min values for ZVert
-				// dataArr.get(data, 2);
-				// accelZVecVert[a][j] = data.to<String>().toFloat();
-				// if (accelZVecVert[a][j] > maxAccelZVert)
-				// {
-				// 	maxAccelZVert = accelZVecVert[a][j];
-				// }
-				// if (accelZVecVert[a][j] < minAccelZVert)
-				// {
-				// 	minAccelZVert = accelZVecVert[a][j];
-				// }
+				// Get max and min values for ZVert
+				dataArr.get(data, 2);
+				accelZVecVert[(a * ROW_SIZE) + j] = data.to<String>().toFloat();
+				if (accelZVecVert[(a * ROW_SIZE) + j] > maxAccelZVert)
+				{
+					maxAccelZVert = accelZVecVert[(a * ROW_SIZE) + j];
+				}
+				if (accelZVecVert[(a * ROW_SIZE) + j] < minAccelZVert)
+				{
+					minAccelZVert = accelZVecVert[(a * ROW_SIZE) + j];
+				}
 
-				// // Get max and min values for XHori
-				// dataArr.get(data, 3);
-				// accelXVecHori[a][j] = data.to<String>().toFloat();
-				// if (accelXVecHori[a][j] > maxAccelXHori)
-				// {
-				// 	maxAccelXHori = accelXVecHori[a][j];
-				// }
-				// if (accelXVecHori[a][j] < minAccelXHori)
-				// {
-				// 	minAccelXHori = accelXVecHori[a][j];
-				// }
+				// Get max and min values for XHori
+				dataArr.get(data, 3);
+				accelXVecHori[(a * ROW_SIZE) + j] = data.to<String>().toFloat();
+				if (accelXVecHori[(a * ROW_SIZE) + j] > maxAccelXHori)
+				{
+					maxAccelXHori = accelXVecHori[(a * ROW_SIZE) + j];
+				}
+				if (accelXVecHori[(a * ROW_SIZE) + j] < minAccelXHori)
+				{
+					minAccelXHori = accelXVecHori[(a * ROW_SIZE) + j];
+				}
 
-				// // Get max and min values for YHori
-				// dataArr.get(data, 4);
-				// accelYVecHori[a][j] = data.to<String>().toFloat();
-				// if (accelYVecHori[a][j] > maxAccelYHori)
-				// {
-				// 	maxAccelYHori = accelYVecHori[a][j];
-				// }
-				// if (accelYVecHori[a][j] < minAccelYHori)
-				// {
-				// 	minAccelYHori = accelYVecHori[a][j];
-				// }
+				// Get max and min values for YHori
+				dataArr.get(data, 4);
+				accelYVecHori[(a * ROW_SIZE) + j] = data.to<String>().toFloat();
+				if (accelYVecHori[(a * ROW_SIZE) + j] > maxAccelYHori)
+				{
+					maxAccelYHori = accelYVecHori[(a * ROW_SIZE) + j];
+				}
+				if (accelYVecHori[(a * ROW_SIZE) + j] < minAccelYHori)
+				{
+					minAccelYHori = accelYVecHori[(a * ROW_SIZE) + j];
+				}
 
-				// // Get max and min values for ZHori
-				// dataArr.get(data, 5);
-				// accelZVecHori[a][j] = data.to<String>().toFloat();
-				// if (accelZVecHori[a][j] > maxAccelZHori)
-				// {
-				// 	maxAccelZHori = accelZVecHori[a][j];
-				// }
-				// if (accelZVecHori[a][j] < minAccelZHori)
-				// {
-				// 	minAccelZHori = accelZVecHori[a][j];
-				// }
+				// Get max and min values for ZHori
+				dataArr.get(data, 5);
+				accelZVecHori[(a * ROW_SIZE) + j] = data.to<String>().toFloat();
+				if (accelZVecHori[(a * ROW_SIZE) + j] > maxAccelZHori)
+				{
+					maxAccelZHori = accelZVecHori[(a * ROW_SIZE) + j];
+				}
+				if (accelZVecHori[(a * ROW_SIZE) + j] < minAccelZHori)
+				{
+					minAccelZHori = accelZVecHori[(a * ROW_SIZE) + j];
+				}
 			}
 		}
 
@@ -334,8 +336,6 @@ void loop()
 		// {
 		// 	Serial.printf("Input %d: %f\n", i, user_input[i]);
 		// }
-		Serial.print("Size of vector: ");
-		Serial.println(accelXVecVert.size());
 		Serial.println();
 		Serial.println("---------------------------------------------------------------");
 	}
@@ -343,60 +343,16 @@ void loop()
 	Serial.print("Free heap: ");
 	Serial.println(ESP.getFreeHeap());
 
-	// Normalize the data for 1D between 0 and 1
-	for (int i = 0; i < accelXVecVert.size(); i++)
-	{
-		accelXVecVert[i] = (accelXVecVert[i] - minAccelXVert) / (maxAccelXVert - minAccelXVert);
-		accelYVecVert[i] = (accelYVecVert[i] - minAccelYVert) / (maxAccelYVert - minAccelYVert);
-		accelZVecVert[i] = (accelZVecVert[i] - minAccelZVert) / (maxAccelZVert - minAccelZVert);
-		accelXVecHori[i] = (accelXVecHori[i] - minAccelXHori) / (maxAccelXHori - minAccelXHori);
-		accelYVecHori[i] = (accelYVecHori[i] - minAccelYHori) / (maxAccelYHori - minAccelYHori);
-		accelZVecHori[i] = (accelZVecHori[i] - minAccelZHori) / (maxAccelZHori - minAccelZHori);
-	}
-
 	// Normalize the data for 2D between -1 and 1
-	// for (int i = 0; i < accelXVecVert.size(); i++)
-	// {
-	// 	for (int j = 0; j < accelXVecVert[i].size(); j++)
-	// 	{
-	// 		accelXVecVert[i][j] = (accelXVecVert[i][j] - minAccelXVert) / (maxAccelXVert - minAccelXVert) * 2 - 1;
-	// 	}
-	// }
-	// for (int i = 0; i < accelYVecVert.size(); i++)
-	// {
-	// 	for (int j = 0; j < accelYVecVert[i].size(); j++)
-	// 	{
-	// 		accelYVecVert[i][j] = (accelYVecVert[i][j] - minAccelYVert) / (maxAccelYVert - minAccelYVert) * 2 - 1;
-	// 	}
-	// }
-	// for (int i = 0; i < accelZVecVert.size(); i++)
-	// {
-	// 	for (int j = 0; j < accelZVecVert[i].size(); j++)
-	// 	{
-	// 		accelZVecVert[i][j] = (accelZVecVert[i][j] - minAccelZVert) / (maxAccelZVert - minAccelZVert) * 2 - 1;
-	// 	}
-	// }
-	// for (int i = 0; i < accelXVecHori.size(); i++)
-	// {
-	// 	for (int j = 0; j < accelXVecHori[i].size(); j++)
-	// 	{
-	// 		accelXVecHori[i][j] = (accelXVecHori[i][j] - minAccelXHori) / (maxAccelXHori - minAccelXHori) * 2 - 1;
-	// 	}
-	// }
-	// for (int i = 0; i < accelYVecHori.size(); i++)
-	// {
-	// 	for (int j = 0; j < accelYVecHori[i].size(); j++)
-	// 	{
-	// 		accelYVecHori[i][j] = (accelYVecHori[i][j] - minAccelYHori) / (maxAccelYHori - minAccelYHori) * 2 - 1;
-	// 	}
-	// }
-	// for (int i = 0; i < accelZVecHori.size(); i++)
-	// {
-	// 	for (int j = 0; j < accelZVecHori[i].size(); j++)
-	// 	{
-	// 		accelZVecHori[i][j] = (accelZVecHori[i][j] - minAccelZHori) / (maxAccelZHori - minAccelZHori) * 2 - 1;
-	// 	}
-	// }
+	for (int i = 0; i < 24 * 40; i++)
+	{
+		accelXVecVert[i] = (accelXVecVert[i] - minAccelXVert) / (maxAccelXVert - minAccelXVert) * 2 - 1;
+		accelYVecVert[i] = (accelYVecVert[i] - minAccelYVert) / (maxAccelYVert - minAccelYVert) * 2 - 1;
+		accelZVecVert[i] = (accelZVecVert[i] - minAccelZVert) / (maxAccelZVert - minAccelZVert) * 2 - 1;
+		accelXVecHori[i] = (accelXVecHori[i] - minAccelXHori) / (maxAccelXHori - minAccelXHori) * 2 - 1;
+		accelYVecHori[i] = (accelYVecHori[i] - minAccelYHori) / (maxAccelYHori - minAccelYHori) * 2 - 1;
+		accelZVecHori[i] = (accelZVecHori[i] - minAccelZHori) / (maxAccelZHori - minAccelZHori) * 2 - 1;
+	}
 
 	// Reset max and min values
 	maxAccelXVert = -10e9;
@@ -414,80 +370,35 @@ void loop()
 
 	Serial.print("Combining all vector into 1");
 	Serial.println();
-	// std::vector<std::vector<float>> accelData(24, std::vector<float>(24));
 
-	for (int iter = 0; iter < 40; iter++)
-	{
-		std::vector<float> accelData;
-		// For 1D
-		for (int i = 0; i < 26; i++)
-		{
-			accelData.push_back(accelXVecVert[i + iter * 26]);
-		}
-		for (int i = 0; i < 26; i++)
-		{
-			accelData.push_back(accelYVecVert[i + iter * 26]);
-		}
-		for (int i = 0; i < 26; i++)
-		{
-			accelData.push_back(accelZVecVert[i + iter * 26]);
-		}
-		for (int i = 0; i < 26; i++)
-		{
-			accelData.push_back(accelXVecHori[i + iter * 26]);
-		}
-		for (int i = 0; i < 26; i++)
-		{
-			accelData.push_back(accelYVecHori[i + iter * 26]);
-		}
-		for (int i = 0; i < 26; i++)
-		{
-			accelData.push_back(accelZVecHori[i + iter * 26]);
-		}
+	// For 1D
+	// for (int i = 0; i < accelXVecVert.size(); i++)
+	// {
+	// 	accelData.push_back(accelXVecVert[i]);
+	// }
+	// for (int i = 0; i < accelYVecVert.size(); i++)
+	// {
+	// 	accelData.push_back(accelYVecVert[i]);
+	// }
+	// for (int i = 0; i < accelZVecVert.size(); i++)
+	// {
+	// 	accelData.push_back(accelZVecVert[i]);
+	// }
+	// for (int i = 0; i < accelXVecHori.size(); i++)
+	// {
+	// 	accelData.push_back(accelXVecHori[i]);
+	// }
+	// for (int i = 0; i < accelYVecHori.size(); i++)
+	// {
+	// 	accelData.push_back(accelYVecHori[i]);
+	// }
+	// for (int i = 0; i < accelZVecHori.size(); i++)
+	// {
+	// 	accelData.push_back(accelZVecHori[i]);
+	// }
 
-		Serial.print("Size of combined vector: ");
-		Serial.println(accelData.size());
-
-		// Run interference on the input data
-		for (int i = 0; i < accelData.size(); i++)
-		{
-			CNN_input->data.f[i] = accelData[i];
-		}
-
-		Serial.println("Running inference on inputted data...");
-
-		// Run inference on the input data
-		if (CNN_interpreter->Invoke() != kTfLiteOk)
-		{
-			Serial.println("There was an error invoking the interpreter!");
-			return;
-		}
-
-		Serial.println("Inference complete!");
-
-		// For 1D
-		// Calculate the MSE
-		float mse = 0;
-		for (int i = 0; i < 26 * 6; i++)
-		{
-			mse += pow(accelData[i] - CNN_output->data.f[i], 2);
-		}
-		mse /= 26 * 6;
-		Serial.print("MSE: ");
-		Serial.println(mse);
-
-		if (mse > threshold)
-		{
-			aboveMSE++;
-		}
-		else
-		{
-			belowMSE++;
-		}
-
-		Serial.print("Free heap: ");
-		Serial.println(ESP.getFreeHeap());
-	}
+	// Serial.print("Size of combined vector: ");
+	// Serial.println(accelData.size());
 
 	// accelXVecHori.clear();
 	// accelYVecHori.clear();
@@ -503,148 +414,100 @@ void loop()
 	// }
 
 	// For 2D
-	// for (int i = 0; i < accelXVecVert.size(); i++)
-	// {
-	// 	for (int j = 0; j < accelXVecVert[i].size(); j++)
-	// 	{
-	// 		accelData[i][j] = accelXVecVert[i][j];
-	// 	}
-	// }
-	// for (int i = 0; i < accelYVecVert.size(); i++)
-	// {
-	// 	for (int j = 0; j < accelYVecVert[i].size(); j++)
-	// 	{
-	// 		accelData[i + 4][j] = accelYVecVert[i][j];
-	// 	}
-	// }
-	// for (int i = 0; i < accelZVecVert.size(); i++)
-	// {
-	// 	for (int j = 0; j < accelZVecVert[i].size(); j++)
-	// 	{
-	// 		accelData[i + 8][j] = accelZVecVert[i][j];
-	// 	}
-	// }
-	// for (int i = 0; i < accelXVecHori.size(); i++)
-	// {
-	// 	for (int j = 0; j < accelXVecHori[i].size(); j++)
-	// 	{
-	// 		accelData[i + 12][j] = accelXVecHori[i][j];
-	// 	}
-	// }
-	// for (int i = 0; i < accelYVecHori.size(); i++)
-	// {
-	// 	for (int j = 0; j < accelYVecHori[i].size(); j++)
-	// 	{
-	// 		accelData[i + 16][j] = accelYVecHori[i][j];
-	// 	}
-	// }
-	// for (int i = 0; i < accelZVecHori.size(); i++)
-	// {
-	// 	for (int j = 0; j < accelZVecHori[i].size(); j++)
-	// 	{
-	// 		accelData[i + 20][j] = accelZVecHori[i][j];
-	// 	}
-	// }
+	for (int a = 0; a < 10; a++)
+	{
 
-	// Serial.print("Size of combined vector: ");
-	// Serial.println(accelData.size());
+		// Only for 1D
+		// accelXVecHori.clear();
+		// accelYVecHori.clear();
+		// accelZVecHori.clear();
+		// accelXVecVert.clear();
+		// accelYVecVert.clear();
+		// accelZVecVert.clear();
 
-	// Only for 1D
-	accelXVecHori.clear();
-	accelYVecHori.clear();
-	accelZVecHori.clear();
-	accelXVecVert.clear();
-	accelYVecVert.clear();
-	accelZVecVert.clear();
+		// Set input into interpreter
+		for (int i = 0; i < 96; i++)
+		{
+			CNN_input->data.f[i] = accelXVecVert[(a * 96) + i];
+			CNN_input->data.f[i+96] = accelYVecVert[(a * 96) + i];
+			CNN_input->data.f[i+96*2] = accelZVecVert[(a * 96) + i];
+			CNN_input->data.f[i+96*3] = accelXVecHori[(a * 96) + i];
+			CNN_input->data.f[i+96*4] = accelYVecHori[(a * 96) + i];
+			CNN_input->data.f[i+96*5] = accelZVecHori[(a * 96) + i];
+		}
 
-	// Set input into interpreter
-	// for (int i = 0; i < accelData.size(); i++)
-	// {
-	// 	for (int j = 0; j < accelData[i].size(); j++)
-	// 	{
-	// 		CNN_input->data.f[i * 24 + j] = accelData[i][j];
-	// 	}
-	// }
+		Serial.println("Running inference on inputted data...");
 
-	// Print the output of the model.
-	// Serial.print("Output 1: ");
-	// Serial.println(CNN_output->data.f[0]);
-	// Serial.print("Output 2: ");
-	// Serial.println(CNN_output->data.f[1]);
-	// Serial.print("Output 3: ");
-	// Serial.println(CNN_output->data.f[2]);
+		// Run inference on the input data
+		if (CNN_interpreter->Invoke() != kTfLiteOk)
+		{
+			Serial.println("There was an error invoking the interpreter!");
+			return;
+		}
 
-	// int predicted;
-	// if (CNN_output->data.f[0] > CNN_output->data.f[1] && CNN_output->data.f[0] > CNN_output->data.f[2])
-	// {
-	// 	predicted = 0;
-	// 	num_cavitation++;
-	// 	// Set RGB LED to red to indicate cavitation
-	// 	neopixelWrite(RGB_BUILTIN, DIM_RGB_BRIGHTNESS, 0, 0);
-	// }
-	// else if (CNN_output->data.f[1] > CNN_output->data.f[0] && CNN_output->data.f[1] > CNN_output->data.f[2])
-	// {
-	// 	predicted = 1;
-	// 	num_healthy++;
-	// 	// Set RGB LED to green to indicate healthy
-	// 	neopixelWrite(RGB_BUILTIN, 0, DIM_RGB_BRIGHTNESS, 0);
-	// }
-	// else
-	// {
-	// 	predicted = 2;
-	// 	num_loosebase++;
-	// 	// Set RGB LED to yellow to indicate loose base
-	// 	neopixelWrite(RGB_BUILTIN, DIM_RGB_BRIGHTNESS, DIM_RGB_BRIGHTNESS, 0);
-	// }
+		Serial.println("Inference complete!");
 
+		// Print the output of the model.
+		Serial.print("Output 1: ");
+		Serial.println(CNN_output->data.f[0]);
+		Serial.print("Output 2: ");
+		Serial.println(CNN_output->data.f[1]);
+		Serial.print("Output 3: ");
+		Serial.println(CNN_output->data.f[2]);
+
+		int predicted;
+		if (CNN_output->data.f[0] > CNN_output->data.f[1] && CNN_output->data.f[0] > CNN_output->data.f[2])
+		{
+			predicted = 0;
+			num_cavitation++;
+			// Set RGB LED to red to indicate cavitation
+			neopixelWrite(RGB_BUILTIN, DIM_RGB_BRIGHTNESS, 0, 0);
+		}
+		else if (CNN_output->data.f[1] > CNN_output->data.f[0] && CNN_output->data.f[1] > CNN_output->data.f[2])
+		{
+			predicted = 1;
+			num_healthy++;
+			// Set RGB LED to green to indicate healthy
+			neopixelWrite(RGB_BUILTIN, 0, DIM_RGB_BRIGHTNESS, 0);
+		}
+		else
+		{
+			predicted = 2;
+			num_loosebase++;
+			// Set RGB LED to yellow to indicate loose base
+			neopixelWrite(RGB_BUILTIN, DIM_RGB_BRIGHTNESS, DIM_RGB_BRIGHTNESS, 0);
+		}
+	}
+
+	Serial.print("Free heap: ");
+	Serial.println(ESP.getFreeHeap());
 	// Serial.println("Delaying for 3 seconds...");
 	// delay(3000);
 
 	// For sending result to Google sheets
 	if (ready)
 	{
-		// FirebaseJson toUpdate1;
-		// FirebaseJson toUpdate2;
-		// FirebaseJson toUpdate3;
-		// FirebaseJson updateResponse;
-
-		// toUpdate1.add("range", "Sheet1!A5");
-		// toUpdate1.add("majorDimension", "ROWS");
-		// toUpdate1.set("values/[0]/[0]", num_healthy);
-
-		// toUpdate2.add("range", "Sheet1!A8");
-		// toUpdate2.add("majorDimension", "ROWS");
-		// toUpdate2.set("values/[0]/[0]", num_cavitation);
-
-		// toUpdate3.add("range", "Sheet1!A11");
-		// toUpdate3.add("majorDimension", "ROWS");
-		// toUpdate3.set("values/[0]/[0]", num_loosebase);
-
-		// FirebaseJsonArray toUpdateArr;
-		// toUpdateArr.add(toUpdate1);
-		// toUpdateArr.add(toUpdate2);
-		// toUpdateArr.add(toUpdate3);
-
-		// bool successUpdate = GSheet.values.batchUpdate(&updateResponse,	   /* returned response */
-		// 											   TESTSPREADSHEET_ID, /* spreadsheet Id to update */
-		// 											   &toUpdateArr		   /* range to update */
-		// );
-
 		FirebaseJson toUpdate1;
 		FirebaseJson toUpdate2;
+		FirebaseJson toUpdate3;
 		FirebaseJson updateResponse;
 
-		toUpdate1.add("range", "Sheet1!A15");
+		toUpdate1.add("range", "Sheet1!A5");
 		toUpdate1.add("majorDimension", "ROWS");
-		toUpdate1.set("values/[0]/[0]", aboveMSE);
+		toUpdate1.set("values/[0]/[0]", num_healthy);
 
-		toUpdate2.add("range", "Sheet1!A17");
+		toUpdate2.add("range", "Sheet1!A8");
 		toUpdate2.add("majorDimension", "ROWS");
-		toUpdate2.set("values/[0]/[0]", belowMSE);
+		toUpdate2.set("values/[0]/[0]", num_cavitation);
+
+		toUpdate3.add("range", "Sheet1!A11");
+		toUpdate3.add("majorDimension", "ROWS");
+		toUpdate3.set("values/[0]/[0]", num_loosebase);
 
 		FirebaseJsonArray toUpdateArr;
 		toUpdateArr.add(toUpdate1);
 		toUpdateArr.add(toUpdate2);
+		toUpdateArr.add(toUpdate3);
 
 		bool successUpdate = GSheet.values.batchUpdate(&updateResponse,	   /* returned response */
 													   TESTSPREADSHEET_ID, /* spreadsheet Id to update */
