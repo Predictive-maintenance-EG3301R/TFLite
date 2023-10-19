@@ -72,18 +72,18 @@ float accelYVecHori[1000];
 float accelZVecHori[1000];
 
 // For normalizing the accelerometer data
-float maxAccelXVert[10] = {-10e9, -10e9, -10e9, -10e9, -10e9, -10e9, -10e9, -10e9, -10e9, -10e9};
-float minAccelXVert[10] = {10e9, 10e9, 10e9, 10e9, 10e9, 10e9, 10e9, 10e9, 10e9, 10e9};
-float maxAccelYVert[10] = {-10e9, -10e9, -10e9, -10e9, -10e9, -10e9, -10e9, -10e9, -10e9, -10e9};
-float minAccelYVert[10] = {10e9, 10e9, 10e9, 10e9, 10e9, 10e9, 10e9, 10e9, 10e9, 10e9};
-float maxAccelZVert[10] = {-10e9, -10e9, -10e9, -10e9, -10e9, -10e9, -10e9, -10e9, -10e9, -10e9};
-float minAccelZVert[10] = {10e9, 10e9, 10e9, 10e9, 10e9, 10e9, 10e9, 10e9, 10e9, 10e9};
-float maxAccelXHori[10] = {-10e9, -10e9, -10e9, -10e9, -10e9, -10e9, -10e9, -10e9, -10e9, -10e9};
-float minAccelXHori[10] = {10e9, 10e9, 10e9, 10e9, 10e9, 10e9, 10e9, 10e9, 10e9, 10e9};
-float maxAccelYHori[10] = {-10e9, -10e9, -10e9, -10e9, -10e9, -10e9, -10e9, -10e9, -10e9, -10e9};
-float minAccelYHori[10] = {10e9, 10e9, 10e9, 10e9, 10e9, 10e9, 10e9, 10e9, 10e9, 10e9};
-float maxAccelZHori[10] = {-10e9, -10e9, -10e9, -10e9, -10e9, -10e9, -10e9, -10e9, -10e9, -10e9};
-float minAccelZHori[10] = {10e9, 10e9, 10e9, 10e9, 10e9, 10e9, 10e9, 10e9, 10e9, 10e9};
+float maxAccelXVert = -10e9;
+float minAccelXVert = 10e9;
+float maxAccelYVert = -10e9;
+float minAccelYVert = 10e9;
+float maxAccelZVert = -10e9;
+float minAccelZVert = 10e9;
+float maxAccelXHori = -10e9;
+float minAccelXHori = 10e9;
+float maxAccelYHori = -10e9;
+float minAccelYHori = 10e9;
+float maxAccelZHori = -10e9;
+float minAccelZHori = 10e9;
 
 SPARKFUN_LIS2DH12 accelVert; // Create instance
 SPARKFUN_LIS2DH12 accelHori; // Create instance
@@ -103,7 +103,7 @@ DFRobot_MLX90614_I2C sensor(0x5A, &I2Ctwo); // instantiate an object to drive th
 // Details for model to be tested
 #define AUTOENCODER_INPUT_SIZE 26	 // Per axis
 #define CLASSIFICATION_INPUT_SIZE 96 // Per axis
-#define NUM_INFERENCE_SAMPLES 20
+#define NUM_INFERENCE_SAMPLES 10
 #define NUM_AXIS 6
 #define NUM_CATEGORIES 3
 
@@ -147,6 +147,7 @@ void setBlue();
 void setPurple();
 void setOrange();
 void setYellow();
+void setWhite();
 void toggleBlueLED();
 
 //***************** Blynk Functions *****************
@@ -201,7 +202,6 @@ void evaluateResults();
 void IRAM_ATTR onTimer()
 {
 	isAccTimerTriggered = true; // Indicates that the interrupt has been entered since the last time its value was changed to false
-	Blynk.run();
 }
 
 // Set up the ESP32's environment.
@@ -252,6 +252,7 @@ void setup()
 	else
 	{
 		Serial.println("Blynk Not Connected");
+		ESP.restart();
 	}
 
 	// ************ Execute OTA Update if available ************
@@ -272,7 +273,7 @@ void setup()
 	I2Cone.begin(5, 4);
 	Serial.println("I2Cone begin");
 	I2Cone.setClock(1000000);
-	delay(200);
+	delay(500);
 	Serial.println("I2Cone setup done");
 
 	if (accelVert.begin(0x18, I2Cone) == false)
@@ -308,17 +309,9 @@ void setup()
 	// **************** Temperature sensor setup ****************
 	I2Ctwo.begin(7, 6);
 	I2Ctwo.setClock(1000000);
-	delay(200);
+	delay(500);
 	// Init the temperature sensor
-	int num_tries = 0;
-	while (NO_ERR != sensor.begin() && num_tries < 15)
-	{
-		Serial.println("Trying to connect to temperature sensor...");
-		num_tries++;
-		delay(100);
-	}
-
-	if (num_tries >= 15)
+	if (NO_ERR != sensor.begin())
 	{
 		Serial.println("Communication with temperature sensor failed, please check connection");
 		Blynk.virtualWrite(TEMP_CONNECTION_VPIN, 0);
@@ -336,6 +329,10 @@ void setup()
 	preferences.begin("mode", false);	  // Open preferences with write access
 	mode = preferences.getInt("mode", 0); // Get the value of the key; if not present, return default value of 0
 	mode = 1;							  // !! LOADING CLASSIFIER MODEL FOR NOW FOR TESTING
+	preferences.end();
+
+	preferences.begin("total_inference_count", false); // Open preferences with write access
+	total_inference_count = preferences.getInt("total_inference_count", 0);
 	preferences.end();
 
 	// Load the correct model based on the mode
@@ -395,8 +392,11 @@ void setup()
 // Logic loop for taking user input and outputting the FFT
 void loop()
 {
+	Blynk.run();
 	if (numSamples == NUM_PER_SAMPLE)
 	{
+		// Change LED to white to show that it is running inference
+		setWhite();
 		// Check amount of free heap space initially
 		Serial.print("Free heap before running model: ");
 		Serial.println(String(ESP.getFreeHeap()));
@@ -427,13 +427,32 @@ void loop()
 			else
 			{
 				// Load the data into the interpreter
-				for (int i = 0; i < CLASSIFICATION_INPUT_SIZE; i++)
-				{
+				// for (int i = 0; i < CLASSIFICATION_INPUT_SIZE; i++)
+				// {
+				// 	model_input->data.f[i] = accelXVecVert[i + (curr_inference_count * 100)];
+				// 	model_input->data.f[i + CLASSIFICATION_INPUT_SIZE] = accelYVecVert[i + (curr_inference_count * 100)];
+				// 	model_input->data.f[i + (2 * CLASSIFICATION_INPUT_SIZE)] = accelZVecVert[i + (curr_inference_count * 100)];
+				// 	model_input->data.f[i + (3 * CLASSIFICATION_INPUT_SIZE)] = accelXVecHori[i + (curr_inference_count * 100)];
+				// 	model_input->data.f[i + (4 * CLASSIFICATION_INPUT_SIZE)] = accelYVecHori[i + (curr_inference_count * 100)];
+				// 	model_input->data.f[i + (5 * CLASSIFICATION_INPUT_SIZE)] = accelZVecHori[i + (curr_inference_count * 100)];
+				// }
+
+				for (int i = 0; i < CLASSIFICATION_INPUT_SIZE; i++) {
 					model_input->data.f[i] = accelXVecVert[i + (curr_inference_count * 100)];
+				}
+				for (int i = CLASSIFICATION_INPUT_SIZE; i < 2*CLASSIFICATION_INPUT_SIZE; i++) {
 					model_input->data.f[i + CLASSIFICATION_INPUT_SIZE] = accelYVecVert[i + (curr_inference_count * 100)];
+				}
+				for (int i = 2*CLASSIFICATION_INPUT_SIZE; i < 3*CLASSIFICATION_INPUT_SIZE; i++) {
 					model_input->data.f[i + (2 * CLASSIFICATION_INPUT_SIZE)] = accelZVecVert[i + (curr_inference_count * 100)];
+				}
+				for (int i = 3*CLASSIFICATION_INPUT_SIZE; i < 4*CLASSIFICATION_INPUT_SIZE; i++) {
 					model_input->data.f[i + (3 * CLASSIFICATION_INPUT_SIZE)] = accelXVecHori[i + (curr_inference_count * 100)];
+				}
+				for (int i = 4*CLASSIFICATION_INPUT_SIZE; i < 5*CLASSIFICATION_INPUT_SIZE; i++) {
 					model_input->data.f[i + (4 * CLASSIFICATION_INPUT_SIZE)] = accelYVecHori[i + (curr_inference_count * 100)];
+				}
+				for (int i = 5*CLASSIFICATION_INPUT_SIZE; i < 6*CLASSIFICATION_INPUT_SIZE; i++) {
 					model_input->data.f[i + (5 * CLASSIFICATION_INPUT_SIZE)] = accelZVecHori[i + (curr_inference_count * 100)];
 				}
 			}
@@ -530,17 +549,21 @@ void loop()
 
 			curr_inference_count++;
 			total_inference_count++;
-			Serial.println("Inference count: " + String(curr_inference_count));
+			Serial.println("Current inference count: " + String(curr_inference_count));
 
 			delay(10);
 		}
 
-		toggleBlueLED(); // Toggle the blue LED to indicate that inference has been done
 		numSamples = 0;	 // Reset the number of samples taken
-		Serial.println("Inference count: " + String(total_inference_count));
+		Serial.println("Total inference count: " + String(total_inference_count));
 		// Check amount of free heap space after running model
 		Serial.print("Free heap after running model: ");
 		Serial.println(String(ESP.getFreeHeap()));
+		delay(5000);
+		isAccTimerTriggered = false; // Reset the timer trigger
+
+		// Set LED to blue to show inference done
+		setBlue();
 	}
 
 	if (isAccTimerTriggered && (numSamples < NUM_PER_SAMPLE))
@@ -652,75 +675,71 @@ void toggleBlueLED()
 // To get the readings from the accelerometer & update min and max values for normalizing
 void getAccelData()
 {
-	// Serial.println("Getting accelerometer data...");
 	// Get XVert data and update min and max for normalizing
 	float currXVert = accelVert.getX() - offsetXVert;
-	// float currXVert = 0;
-	int currIdx = numSamples / 100;
-	// Serial.println("Current index: " + String(currIdx));
 
-	if (currXVert > maxAccelXVert[currIdx])
+	if (currXVert > maxAccelXVert)
 	{
-		maxAccelXVert[currIdx] = currXVert;
+		maxAccelXVert = currXVert;
 	}
-	if (currXVert < minAccelXVert[currIdx])
+	if (currXVert < minAccelXVert)
 	{
-		minAccelXVert[currIdx] = currXVert;
+		minAccelXVert = currXVert;
 	}
 
 	// Get YVert data and update min and max for normalizing
 	float currYVert = accelVert.getY() - offsetYVert;
-	if (currYVert > maxAccelYVert[currIdx])
+	if (currYVert > maxAccelYVert)
 	{
-		maxAccelYVert[currIdx] = currYVert;
+		maxAccelYVert = currYVert;
 	}
-	if (currYVert < minAccelYVert[currIdx])
+	if (currYVert < minAccelYVert)
 	{
-		minAccelYVert[currIdx] = currYVert;
+		minAccelYVert = currYVert;
 	}
 
 	// Get ZVert data and update min and max for normalizing
 	float currZVert = accelVert.getZ() - offsetZVert;
-	if (currZVert > maxAccelZVert[currIdx])
+	if (currZVert > maxAccelZVert)
 	{
-		maxAccelZVert[currIdx] = currZVert;
+		maxAccelZVert = currZVert;
 	}
-	if (currZVert < minAccelZVert[currIdx])
+	if (currZVert < minAccelZVert)
 	{
-		minAccelZVert[currIdx] = currZVert;
+		minAccelZVert = currZVert;
 	}
 
 	// Get XHori data and update min and max for normalizing
 	float currXHori = accelHori.getX() - offsetXHori;
-	if (currXHori > maxAccelXHori[currIdx])
+	if (currXHori > maxAccelXHori)
 	{
-		maxAccelXHori[currIdx] = currXHori;
+		maxAccelXHori = currXHori;
 	}
-	if (currXHori < minAccelXHori[currIdx])
+	if (currXHori < minAccelXHori)
 	{
-		minAccelXHori[currIdx] = currXHori;
+		minAccelXHori = currXHori;
 	}
 
 	// Get YHori data and update min and max for normalizing
 	float currYHori = accelHori.getY() - offsetYHori;
-	if (currYHori > maxAccelYHori[currIdx])
+	if (currYHori > maxAccelYHori)
 	{
-		maxAccelYHori[currIdx] = currYHori;
+		maxAccelYHori = currYHori;
 	}
-	if (currYHori < minAccelYHori[currIdx])
+	if (currYHori < minAccelYHori)
 	{
-		minAccelYHori[currIdx] = currYHori;
+		minAccelYHori = currYHori;
 	}
 
 	// Get ZHori data and update min and max for normalizing
 	float currZHori = accelHori.getZ() - offsetZHori;
-	if (currZHori > maxAccelZHori[currIdx])
+	if (currZHori > maxAccelZHori)
 	{
-		maxAccelZHori[currIdx] = currZHori;
+		maxAccelZHori = currZHori;
 	}
-	if (currZHori < minAccelZHori[currIdx])
+	if (currZHori < minAccelZHori)
 	{
-		minAccelZHori[currIdx] = currZHori;
+		minAccelZHori = currZHori;
 	}
 
 	accelXVecVert[numSamples] = currXVert;
@@ -733,56 +752,48 @@ void getAccelData()
 }
 
 // Normalize the accelerometer data and reset the min and max values for each axis
-// Data is normalized in segments of 100, between 0 and 1 for autoencoder and -1 and 1 for classifier
+// Data is normalized per 1000, between 0 and 1 for autoencoder and -1 and 1 for classifier
 void normalizeAccelData()
 {
 	if (mode == 0)
 	{
-		for (int i = 0; i < 10; i++)
+		for (int i = 0; i < NUM_PER_SAMPLE; i++)
 		{
-			for (int j = 0; j < 100; j++)
-			{
-				accelXVecVert[(i * 100) + j] = (accelXVecVert[(i * 100) + j] - minAccelXVert[i]) / (maxAccelXVert[i] - minAccelXVert[i]);
-				accelYVecVert[(i * 100) + j] = (accelYVecVert[(i * 100) + j] - minAccelYVert[i]) / (maxAccelYVert[i] - minAccelYVert[i]);
-				accelZVecVert[(i * 100) + j] = (accelZVecVert[(i * 100) + j] - minAccelZVert[i]) / (maxAccelZVert[i] - minAccelZVert[i]);
-				accelXVecHori[(i * 100) + j] = (accelXVecHori[(i * 100) + j] - minAccelXHori[i]) / (maxAccelXHori[i] - minAccelXHori[i]);
-				accelYVecHori[(i * 100) + j] = (accelYVecHori[(i * 100) + j] - minAccelYHori[i]) / (maxAccelYHori[i] - minAccelYHori[i]);
-				accelZVecHori[(i * 100) + j] = (accelZVecHori[(i * 100) + j] - minAccelZHori[i]) / (maxAccelZHori[i] - minAccelZHori[i]);
-			}
+			accelXVecVert[i] = (accelXVecVert[i] - minAccelXVert) / (maxAccelXVert - minAccelXVert);
+			accelYVecVert[i] = (accelYVecVert[i] - minAccelYVert) / (maxAccelYVert - minAccelYVert);
+			accelZVecVert[i] = (accelZVecVert[i] - minAccelZVert) / (maxAccelZVert - minAccelZVert);
+			accelXVecHori[i] = (accelXVecHori[i] - minAccelXHori) / (maxAccelXHori - minAccelXHori);
+			accelYVecHori[i] = (accelYVecHori[i] - minAccelYHori) / (maxAccelYHori - minAccelYHori);
+			accelZVecHori[i] = (accelZVecHori[i] - minAccelZHori) / (maxAccelZHori - minAccelZHori);
 		}
 	}
 	if (mode == 1)
 	{
-		for (int i = 0; i < 10; i++)
+		for (int i = 0; i < NUM_PER_SAMPLE; i++)
 		{
-			for (int j = 0; j < 100; j++)
-			{
-				accelXVecVert[(i * 100) + j] = ((accelXVecVert[(i * 100) + j] - minAccelXVert[i]) / (maxAccelXVert[i] - minAccelXVert[i])) * 2 - 1;
-				accelYVecVert[(i * 100) + j] = ((accelYVecVert[(i * 100) + j] - minAccelYVert[i]) / (maxAccelYVert[i] - minAccelYVert[i])) * 2 - 1;
-				accelZVecVert[(i * 100) + j] = ((accelZVecVert[(i * 100) + j] - minAccelZVert[i]) / (maxAccelZVert[i] - minAccelZVert[i])) * 2 - 1;
-				accelXVecHori[(i * 100) + j] = ((accelXVecHori[(i * 100) + j] - minAccelXHori[i]) / (maxAccelXHori[i] - minAccelXHori[i])) * 2 - 1;
-				accelYVecHori[(i * 100) + j] = ((accelYVecHori[(i * 100) + j] - minAccelYHori[i]) / (maxAccelYHori[i] - minAccelYHori[i])) * 2 - 1;
-				accelZVecHori[(i * 100) + j] = ((accelZVecHori[(i * 100) + j] - minAccelZHori[i]) / (maxAccelZHori[i] - minAccelZHori[i])) * 2 - 1;
-			}
+			accelXVecVert[i] = ((accelXVecVert[i] - minAccelXVert) / (maxAccelXVert - minAccelXVert)) * 2 - 1;
+			accelYVecVert[i] = ((accelYVecVert[i] - minAccelYVert) / (maxAccelYVert - minAccelYVert)) * 2 - 1;
+			accelZVecVert[i] = ((accelZVecVert[i] - minAccelZVert) / (maxAccelZVert - minAccelZVert)) * 2 - 1;
+			accelXVecHori[i] = ((accelXVecHori[i] - minAccelXHori) / (maxAccelXHori - minAccelXHori)) * 2 - 1;
+			accelYVecHori[i] = ((accelYVecHori[i] - minAccelYHori) / (maxAccelYHori - minAccelYHori)) * 2 - 1;
+			accelZVecHori[i] = ((accelZVecHori[i] - minAccelZHori) / (maxAccelZHori - minAccelZHori)) * 2 - 1;
 		}
 	}
 
 	// Reset the min and max values
-	for (int i = 0; i < 10; i++)
-	{
-		maxAccelXVert[i] = -10e9;
-		minAccelXVert[i] = 10e9;
-		maxAccelYVert[i] = -10e9;
-		minAccelYVert[i] = 10e9;
-		maxAccelZVert[i] = -10e9;
-		minAccelZVert[i] = 10e9;
-		maxAccelXHori[i] = -10e9;
-		minAccelXHori[i] = 10e9;
-		maxAccelYHori[i] = -10e9;
-		minAccelYHori[i] = 10e9;
-		maxAccelZHori[i] = -10e9;
-		minAccelZHori[i] = 10e9;
-	}
+
+	maxAccelXVert = -10e9;
+	minAccelXVert = 10e9;
+	maxAccelYVert = -10e9;
+	minAccelYVert = 10e9;
+	maxAccelZVert = -10e9;
+	minAccelZVert = 10e9;
+	maxAccelXHori = -10e9;
+	minAccelXHori = 10e9;
+	maxAccelYHori = -10e9;
+	minAccelYHori = 10e9;
+	maxAccelZHori = -10e9;
+	minAccelZHori = 10e9;
 };
 
 // **************** TFLite Utility Functions ****************
@@ -850,6 +861,9 @@ void evaluateResults()
 	preferences.end();
 
 	// Send count to Blynk
+	if (!Blynk.connected()) {
+		Blynk.begin(BLYNK_AUTH_TOKEN, WIFI_SSID, WIFI_PASSWORD, "blynk.cloud", 8080);
+	}
 	Blynk.virtualWrite(CAVITATION_COUNT_VPIN, num_cavitation);
 	delay(100);
 	Blynk.virtualWrite(LOOSE_COUNT_VPIN, num_loose);
@@ -961,6 +975,9 @@ void execOTA()
 			{
 				Serial.printf("Written : %s successfully\n", String(written));
 				Blynk.virtualWrite(OTA_VPIN, 0); // Set OTA_VPIN to 0
+				Blynk.virtualWrite(CAVITATION_COUNT_VPIN, 0); // Reset cavitation count
+				Blynk.virtualWrite(LOOSE_COUNT_VPIN, 0); // Reset loose count
+				Blynk.virtualWrite(HEALTHY_COUNT_VPIN, 0); // Reset healthy count
 				Serial.printf("Setting OTA_VPIN to 0 to indicate OTA successful\n");
 				// Set to green when successful
 				neopixelWrite(RGB_BUILTIN, 0, RGB_BRIGHTNESS, 0);
@@ -1072,5 +1089,9 @@ void updateLatestTime()
 		return;
 	}
 	strftime(str_time, sizeof(str_time), "%Y-%m-%d %H:%M:%S", &timeinfo);
+
+	if (!Blynk.connected()) {
+		Blynk.begin(BLYNK_AUTH_TOKEN, WIFI_SSID, WIFI_PASSWORD, "blynk.cloud", 8080);
+	}
 	Blynk.virtualWrite(LATEST_TIME_VPIN, str_time);
 }
