@@ -99,8 +99,8 @@ SPARKFUN_LIS2DH12 accelHori;
 #define TEMP_SDA 7
 #define TEMP_SCL 6
 
-TwoWire I2Ctwo = TwoWire(1);				// Set up the I2C bus for the temperature sensor
-DFRobot_MLX90614_I2C sensor(0x5A, &I2Ctwo); // Instantiate the temperature sensor object
+// TwoWire I2Ctwo = TwoWire(1);				// Set up the I2C bus for the temperature sensor
+// DFRobot_MLX90614_I2C sensor(0x5A, &I2Ctwo); // Instantiate the temperature sensor object
 
 //***************** AC Current Sensor variables *****************
 #define ACPin 9			   // define the AC Current Sensor input analog pin
@@ -119,9 +119,12 @@ DFRobot_MLX90614_I2C sensor(0x5A, &I2Ctwo); // Instantiate the temperature senso
 int total_inference_count = 0; // To keep track of total number of inferences run so far
 
 // For classification model
-int num_healthy = 0;
-int num_loose = 0;
-int num_cavitation = 0;
+int curr_num_healthy = 0;
+int curr_num_loose = 0;
+int curr_num_cavitation = 0;
+int total_num_healthy = 0;
+int total_num_loose = 0;
+int total_num_cavitation = 0;
 int max_index = 0;
 float max_output = 0.0;
 
@@ -184,17 +187,17 @@ BLYNK_WRITE(SEND_AWS_VPIN) // To read in whether to send data to AWS
 
 BLYNK_WRITE(CAVITATION_COUNT_VPIN) // To read in the number of cavitation events
 {
-	num_cavitation = param.asInt();
+	total_num_cavitation = param.asInt();
 }
 
 BLYNK_WRITE(HEALTHY_COUNT_VPIN) // To read in the number of healing events
 {
-	num_healthy = param.asInt();
+	total_num_healthy = param.asInt();
 }
 
 BLYNK_WRITE(LOOSE_COUNT_VPIN) // To read in the number of loose events
 {
-	num_loose = param.asInt();
+	total_num_loose = param.asInt();
 }
 
 BLYNK_WRITE(RESET_COUNTER_VPIN)
@@ -232,8 +235,9 @@ void resetCounters() // To reset the counters on Blynk
 	}
 
 	num_anomaly = 0;
-	num_healthy = 0;
-	num_loose = 0;
+	total_num_healthy = 0;
+	total_num_loose = 0;
+	total_num_cavitation = 0;
 
 	Blynk.virtualWrite(CAVITATION_COUNT_VPIN, 0);
 	Blynk.virtualWrite(HEALTHY_COUNT_VPIN, 0);
@@ -264,9 +268,12 @@ void sendInferenceResults()
 	}
 	else
 	{
-		Blynk.virtualWrite(HEALTHY_COUNT_VPIN, num_healthy);
-		Blynk.virtualWrite(LOOSE_COUNT_VPIN, num_loose);
-		Blynk.virtualWrite(CAVITATION_COUNT_VPIN, num_cavitation);
+		Blynk.virtualWrite(LATEST_CAVITATION_COUNT_VPIN, curr_num_cavitation);
+		Blynk.virtualWrite(LATEST_HEALTHY_COUNT_VPIN, curr_num_healthy);
+		Blynk.virtualWrite(LATEST_LOOSE_COUNT_VPIN, curr_num_loose);
+		Blynk.virtualWrite(HEALTHY_COUNT_VPIN, total_num_healthy);
+		Blynk.virtualWrite(LOOSE_COUNT_VPIN, total_num_loose);
+		Blynk.virtualWrite(CAVITATION_COUNT_VPIN, total_num_cavitation);
 	}
 }
 
@@ -298,7 +305,7 @@ void execOTA();
 
 //***************** Accelerometer Functions *****************
 void accelSetup();
-void updateAccelData();
+void updateAccelData(int updateIndex);
 void normalizeAccelData();
 
 //***************** Temperature Sensor Functions *****************
@@ -353,7 +360,7 @@ void setup()
 
 	// Sensors setup // !! UNCOMMENT WHEN SENSORS ARE CONNECTED !!
 	accelSetup();
-	tempSetup();
+	// tempSetup();
 
 	loadPreferences(); // Load the preferences for the ML model
 
@@ -369,7 +376,7 @@ void loop()
 		setWhite(); // Change LED to white to show that it is running inference
 
 		// Test the model with some dummy data
-		Serial.println("Testing model with dummy data...");
+		// Serial.println("Testing model with dummy data...");
 
 		// Normalizing the accelerometer data first
 		normalizeAccelData();
@@ -400,15 +407,15 @@ void loop()
 	{
 		isAccTimerTriggered = false;
 
-		// updateAccelData(numSamples);
+		updateAccelData(numSamples);
 
 		// ********** Dummy data **********
-		accelXVecVert[numSamples] = 0.0;
-		accelXVecHori[numSamples] = 0.0;
-		accelYVecVert[numSamples] = 0.0;
-		accelYVecHori[numSamples] = 0.0;
-		accelZVecVert[numSamples] = 0.0;
-		accelZVecHori[numSamples] = 0.0;
+		// accelXVecVert[numSamples] = 0.0;
+		// accelXVecHori[numSamples] = 0.0;
+		// accelYVecVert[numSamples] = 0.0;
+		// accelYVecHori[numSamples] = 0.0;
+		// accelZVecVert[numSamples] = 0.0;
+		// accelZVecHori[numSamples] = 0.0;
 
 		numSamples++; // Increment the number of samples taken
 	}
@@ -422,11 +429,11 @@ void loop()
 		delay(3000); // Delay to allow user to see whether anomaly was detected from RGB LED
 
 		// !! UNCOMMENT WHEN SENSORS ARE CONNECTED !!
-		float currACValue = getACCurrentValue();
-		float ambientTemp = getAmbientTemp();
-		float objectTemp = getObjectTemp();
-		sendACReading(currACValue);
-		sendTempReadings(ambientTemp, objectTemp);
+		// float currACValue = getACCurrentValue();
+		// float ambientTemp = getAmbientTemp();
+		// float objectTemp = getObjectTemp();
+		// sendACReading(currACValue);
+		// sendTempReadings(ambientTemp, objectTemp);
 
 		if (sendToAWS) // If user wants to send data to AWS
 		{
@@ -610,33 +617,33 @@ void normalizeAccelData()
 };
 
 // **************** Temp sensor Utility Functions ****************
-void tempSetup()
-{
-	I2Ctwo.begin(TEMP_SDA, TEMP_SCL);
-	I2Ctwo.setClock(1000000);
-	delay(500);
-	// Init the temperature sensor
-	if (NO_ERR != sensor.begin())
-	{
-		Serial.println("Communication with temperature sensor failed, please check connection");
-		Blynk.virtualWrite(TEMP_CONNECTION_VPIN, 0);
-		delay(100);
-		ESP.restart();
-	}
+// void tempSetup()
+// {
+// 	I2Ctwo.begin(TEMP_SDA, TEMP_SCL);
+// 	I2Ctwo.setClock(1000000);
+// 	delay(500);
+// 	// Init the temperature sensor
+// 	if (NO_ERR != sensor.begin())
+// 	{
+// 		Serial.println("Communication with temperature sensor failed, please check connection");
+// 		Blynk.virtualWrite(TEMP_CONNECTION_VPIN, 0);
+// 		delay(100);
+// 		ESP.restart();
+// 	}
 
-	Blynk.virtualWrite(TEMP_CONNECTION_VPIN, 1); // Update temp sensor connection status on Blynk
-	Serial.println("Temperature sensor init successful!");
-}
+// 	Blynk.virtualWrite(TEMP_CONNECTION_VPIN, 1); // Update temp sensor connection status on Blynk
+// 	Serial.println("Temperature sensor init successful!");
+// }
 
-float getAmbientTemp()
-{
-	return sensor.getAmbientTempCelsius();
-}
+// float getAmbientTemp()
+// {
+// 	return sensor.getAmbientTempCelsius();
+// }
 
-float getObjectTemp()
-{
-	return sensor.getObjectTempCelsius();
-}
+// float getObjectTemp()
+// {
+// 	return sensor.getObjectTempCelsius();
+// }
 
 // **************** TFLite Utility Functions ****************
 void loadMLModel()
@@ -747,12 +754,18 @@ void readModelOutput(int curr_set)
 		for (int i = 0; i < NUM_CATEGORIES; i++)
 		{
 			float curr_data = model_output->data.f[i];
+			// For debugging
+			Serial.print("Output data: ");
+			Serial.println(curr_data);
+
 			if (curr_data > max_output)
 			{
 				max_output = curr_data;
 				max_index = i;
 			}
 		}
+
+		max_output = 0.0; // Reset the max_output
 	}
 
 	// Processing output data based on model
@@ -771,17 +784,20 @@ void readModelOutput(int curr_set)
 		// Check if the output is healthy, loose or cavitation
 		if (max_index == 1)
 		{
-			num_healthy++;
+			curr_num_healthy++;
+			total_num_healthy++;
 			Serial.println("Healthy");
 		}
 		else if (max_index == 2)
 		{
-			num_loose++;
+			curr_num_loose++;
+			total_num_loose++;
 			Serial.println("Loose");
 		}
 		else
 		{
-			num_cavitation++;
+			curr_num_cavitation++;
+			total_num_cavitation++;
 			Serial.println("Cavitation");
 		}
 	}
@@ -811,16 +827,16 @@ void evaluateResults()
 	}
 	else // Processing of results for classifier model
 	{
-		Serial.println("Healthy count: " + String(num_healthy));
-		Serial.println("Loose count: " + String(num_loose));
-		Serial.println("Cavitation count: " + String(num_cavitation));
+		Serial.println("Healthy count: " + String(curr_num_healthy));
+		Serial.println("Loose count: " + String(curr_num_loose));
+		Serial.println("Cavitation count: " + String(curr_num_cavitation));
 
-		if (num_healthy >= num_loose && num_healthy >= num_cavitation)
+		if (curr_num_healthy >= curr_num_loose && curr_num_healthy >= curr_num_cavitation)
 		{
 			Serial.println("Pump is healthy!");
 			setGreen();
 		}
-		else if (num_loose >= num_healthy && num_loose >= num_cavitation)
+		else if (curr_num_loose >= curr_num_healthy && curr_num_loose >= curr_num_cavitation)
 		{
 			Serial.println("Pump is loose!");
 			setOrange();
@@ -831,19 +847,6 @@ void evaluateResults()
 			setRed();
 		}
 	}
-
-	// Send count to Blynk
-	if (!Blynk.connected())
-	{
-		Blynk.begin(BLYNK_AUTH_TOKEN, WIFI_SSID, WIFI_PASSWORD, "blynk.cloud", 8080);
-		delay(500);
-	}
-	Blynk.virtualWrite(CAVITATION_COUNT_VPIN, num_cavitation);
-	delay(100);
-	Blynk.virtualWrite(LOOSE_COUNT_VPIN, num_loose);
-	delay(100);
-	Blynk.virtualWrite(HEALTHY_COUNT_VPIN, num_healthy);
-	delay(100);
 };
 
 // **************** OTA Utility Functions ****************
