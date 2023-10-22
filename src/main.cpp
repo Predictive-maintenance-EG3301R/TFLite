@@ -130,8 +130,9 @@ float max_output = 0.0;
 
 // For autoencoder model
 float percentage_anomaly = 0.0;
-float mse_threshold = 0.035210764766801725; // Value obtained from training
-float output_mse = 0;
+float average_anomaly = 0.0;
+float anomaly_score = 0.0;
+float anomaly_threshold = 0.2; // Threshold for anomaly detection
 int num_anomaly = 0;
 bool anomaly_detected = false;
 
@@ -264,7 +265,8 @@ void sendInferenceResults()
 
 	if (mode == 0)
 	{
-		Blynk.virtualWrite(ANOMALY_PERCENTAGE_VPIN, percentage_anomaly * 100);
+		Blynk.virtualWrite(ANOMALY_PERCENTAGE_VPIN, average_anomaly * 100);
+		Blynk.virtualWrite(NUM_ANOMALY_VPIN, num_anomaly);
 	}
 	else
 	{
@@ -651,7 +653,7 @@ void loadMLModel()
 	if (mode == 0) // Load autoencoder model if mode == 0
 	{
 		Serial.println("Loading autoencoder model....");
-		ML_model = tflite::GetModel(autoencoder_1dcnn_model_tflite); // !! Model not yet confirmed
+		ML_model = tflite::GetModel(autoencoder_1dcnn_model_tflite); // Correct final model to be used
 	}
 	else
 	{ // Load classifier model if mode == 1
@@ -737,17 +739,8 @@ void readModelOutput(int curr_set)
 {
 	if (mode == 0) // For autoencoder model
 	{
-		for (int i = 0; i < AUTOENCODER_INPUT_SIZE; i++)
-		{
-			output_mse += pow((accelXVecVert[i + (curr_set * AUTOENCODER_INPUT_SIZE)] - model_output->data.f[i]), 2);
-			output_mse += pow((accelYVecVert[i + (curr_set * AUTOENCODER_INPUT_SIZE)] - model_output->data.f[i + AUTOENCODER_INPUT_SIZE]), 2);
-			output_mse += pow((accelZVecVert[i + (curr_set * AUTOENCODER_INPUT_SIZE)] - model_output->data.f[i + (2 * AUTOENCODER_INPUT_SIZE)]), 2);
-			output_mse += pow((accelXVecHori[i + (curr_set * AUTOENCODER_INPUT_SIZE)] - model_output->data.f[i + (3 * AUTOENCODER_INPUT_SIZE)]), 2);
-			output_mse += pow((accelYVecHori[i + (curr_set * AUTOENCODER_INPUT_SIZE)] - model_output->data.f[i + (4 * AUTOENCODER_INPUT_SIZE)]), 2);
-			output_mse += pow((accelZVecHori[i + (curr_set * AUTOENCODER_INPUT_SIZE)] - model_output->data.f[i + (5 * AUTOENCODER_INPUT_SIZE)]), 2);
-		}
-
-		output_mse /= (AUTOENCODER_INPUT_SIZE * NUM_AXIS);
+		anomaly_score = model_output->data.f[0];
+		average_anomaly += anomaly_score;
 	}
 	else
 	{
@@ -771,13 +764,13 @@ void readModelOutput(int curr_set)
 	// Processing output data based on model
 	if (mode == 0)
 	{
-		// Check if the mse is above the threshold
-		if (output_mse > mse_threshold)
+		// Check if the score is above the threshold
+		if (anomaly_score > anomaly_threshold)
 		{
 			num_anomaly++;
 		}
 
-		output_mse = 0.0; // Reset the output_mse
+		anomaly_score = 0.0; // Reset the anomaly score
 	}
 	else
 	{
@@ -809,9 +802,9 @@ void evaluateResults()
 {
 	if (mode == 0) // Processing of results for autoencoder model
 	{
-		percentage_anomaly = (float)num_anomaly / (float)total_inference_count;
-		Serial.print("Percentage anomaly: ");
-		Serial.println(percentage_anomaly);
+		average_anomaly = (float)average_anomaly / (float)total_inference_count;
+		Serial.print("Average anomaly: ");
+		Serial.println(average_anomaly);
 		if (percentage_anomaly > 0.5)
 		{
 			Serial.println("Anomaly detected!");
@@ -1151,7 +1144,6 @@ void loadPreferences()
 {
 	preferences.begin("mode", false);
 	mode = preferences.getInt("mode", 0);
-	mode = 1; // !! LOADING CLASSIFIER MODEL FOR NOW FOR TESTING
 	preferences.end();
 }
 
@@ -1159,14 +1151,25 @@ void updatePreferences()
 {
 	// Setting the mode for the next run
 	preferences.begin("mode", false); // Open preferences with write access
-	if (anomaly_detected)
+	// !! ACTUAL METHOD TO CHANGE MODE !!
+	// if (anomaly_detected)
+	// {
+	// 	// Switch over to classifier model to check
+	// 	preferences.putInt("mode", 1);
+	// }
+	// else
+	// {
+	// 	// Switch back to autoencoder model
+	// 	preferences.putInt("mode", 0);
+	// }
+
+	// !! TOGGLING MODE FOR TESTING !!
+	if (mode == 0)
 	{
-		// Switch over to classifier model to check
 		preferences.putInt("mode", 1);
 	}
 	else
 	{
-		// Switch back to autoencoder model
 		preferences.putInt("mode", 0);
 	}
 	preferences.end();
