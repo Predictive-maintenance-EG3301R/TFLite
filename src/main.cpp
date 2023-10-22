@@ -109,7 +109,7 @@ SPARKFUN_LIS2DH12 accelHori;
 
 // **************** TF Lite variables ****************
 // Details for model to be tested
-#define AUTOENCODER_INPUT_SIZE 26	 // Per axis
+#define AUTOENCODER_INPUT_SIZE 100	 // Per axis
 #define CLASSIFICATION_INPUT_SIZE 96 // Per axis
 #define NUM_INFERENCE_SAMPLES 100	 // Number of samples to run inference on before sending data
 #define NUM_AXIS 6
