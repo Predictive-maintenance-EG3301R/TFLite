@@ -5,7 +5,7 @@
 #include "tensorflow/lite/micro/micro_interpreter.h"
 #include "tensorflow/lite/schema/schema_generated.h"
 #include "cnn_model_fullint_vibeonly.h"
-#include "autoencoder_1dcnn_model.h"
+#include "autoencoder_2dcnn_model_varying.h"
 #include "BlynkSimpleEsp32.h"
 #include <Wire.h>
 #include <SPI.h>
@@ -109,7 +109,7 @@ SPARKFUN_LIS2DH12 accelHori;
 
 // **************** TF Lite variables ****************
 // Details for model to be tested
-#define AUTOENCODER_INPUT_SIZE 100	 // Per axis
+#define AUTOENCODER_INPUT_SIZE 96	 // Per axis
 #define CLASSIFICATION_INPUT_SIZE 96 // Per axis
 #define NUM_INFERENCE_SAMPLES 100	 // Number of samples to run inference on before sending data
 #define NUM_AXIS 6
@@ -578,29 +578,15 @@ void updateAccelData(int updateIndex)
 // Normalize the accelerometer data and reset the min and max values for each axis
 void normalizeAccelData()
 {
-	if (mode == 0) // Normalize between 0 and 1 for autoencoder
+	// Normalize the accelerometer data between -1 and 1
+	for (int i = 0; i < NUM_PER_SAMPLE; i++)
 	{
-		for (int i = 0; i < NUM_PER_SAMPLE; i++)
-		{
-			accelXVecVert[i] = (accelXVecVert[i] - minAccelXVert) / (maxAccelXVert - minAccelXVert);
-			accelYVecVert[i] = (accelYVecVert[i] - minAccelYVert) / (maxAccelYVert - minAccelYVert);
-			accelZVecVert[i] = (accelZVecVert[i] - minAccelZVert) / (maxAccelZVert - minAccelZVert);
-			accelXVecHori[i] = (accelXVecHori[i] - minAccelXHori) / (maxAccelXHori - minAccelXHori);
-			accelYVecHori[i] = (accelYVecHori[i] - minAccelYHori) / (maxAccelYHori - minAccelYHori);
-			accelZVecHori[i] = (accelZVecHori[i] - minAccelZHori) / (maxAccelZHori - minAccelZHori);
-		}
-	}
-	if (mode == 1) // Normalize between -1 and 1 for classifier
-	{
-		for (int i = 0; i < NUM_PER_SAMPLE; i++)
-		{
-			accelXVecVert[i] = ((accelXVecVert[i] - minAccelXVert) / (maxAccelXVert - minAccelXVert)) * 2 - 1;
-			accelYVecVert[i] = ((accelYVecVert[i] - minAccelYVert) / (maxAccelYVert - minAccelYVert)) * 2 - 1;
-			accelZVecVert[i] = ((accelZVecVert[i] - minAccelZVert) / (maxAccelZVert - minAccelZVert)) * 2 - 1;
-			accelXVecHori[i] = ((accelXVecHori[i] - minAccelXHori) / (maxAccelXHori - minAccelXHori)) * 2 - 1;
-			accelYVecHori[i] = ((accelYVecHori[i] - minAccelYHori) / (maxAccelYHori - minAccelYHori)) * 2 - 1;
-			accelZVecHori[i] = ((accelZVecHori[i] - minAccelZHori) / (maxAccelZHori - minAccelZHori)) * 2 - 1;
-		}
+		accelXVecVert[i] = ((accelXVecVert[i] - minAccelXVert) / (maxAccelXVert - minAccelXVert)) * 2 - 1;
+		accelYVecVert[i] = ((accelYVecVert[i] - minAccelYVert) / (maxAccelYVert - minAccelYVert)) * 2 - 1;
+		accelZVecVert[i] = ((accelZVecVert[i] - minAccelZVert) / (maxAccelZVert - minAccelZVert)) * 2 - 1;
+		accelXVecHori[i] = ((accelXVecHori[i] - minAccelXHori) / (maxAccelXHori - minAccelXHori)) * 2 - 1;
+		accelYVecHori[i] = ((accelYVecHori[i] - minAccelYHori) / (maxAccelYHori - minAccelYHori)) * 2 - 1;
+		accelZVecHori[i] = ((accelZVecHori[i] - minAccelZHori) / (maxAccelZHori - minAccelZHori)) * 2 - 1;
 	}
 
 	// Reset the min and max values
@@ -653,7 +639,7 @@ void loadMLModel()
 	if (mode == 0) // Load autoencoder model if mode == 0
 	{
 		Serial.println("Loading autoencoder model....");
-		ML_model = tflite::GetModel(autoencoder_1dcnn_model_tflite); // Correct final model to be used
+		ML_model = tflite::GetModel(autoencoder_2dcnn_model_varying_tflite); // !! TESTING 2D CNN MODEL
 	}
 	else
 	{ // Load classifier model if mode == 1
@@ -740,6 +726,8 @@ void readModelOutput(int curr_set)
 	if (mode == 0) // For autoencoder model
 	{
 		anomaly_score = model_output->data.f[0];
+		Serial.print("Anomaly score: ");
+		Serial.println(anomaly_score);
 		average_anomaly += anomaly_score;
 	}
 	else
