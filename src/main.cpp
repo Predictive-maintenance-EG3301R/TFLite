@@ -286,6 +286,19 @@ void sendInferenceResults()
 		Blynk.virtualWrite(HEALTHY_COUNT_VPIN, total_num_healthy);
 		Blynk.virtualWrite(LOOSE_COUNT_VPIN, total_num_loose);
 		Blynk.virtualWrite(CAVITATION_COUNT_VPIN, total_num_cavitation);
+
+		if (curr_num_healthy >= curr_num_loose && curr_num_healthy >= curr_num_cavitation)
+		{
+			Blynk.virtualWrite(PUMP2_ANOMALY_VPIN, "-");
+		}
+		else if (curr_num_loose >= curr_num_healthy && curr_num_loose >= curr_num_cavitation)
+		{
+			Blynk.virtualWrite(PUMP2_ANOMALY_VPIN, "Loose");
+		}
+		else
+		{
+			Blynk.virtualWrite(PUMP2_ANOMALY_VPIN, "Cavitation");
+		}
 	}
 }
 
