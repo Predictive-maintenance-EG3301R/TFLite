@@ -132,7 +132,7 @@ float max_output = 0.0;
 float percentage_anomaly = 0.0;
 float average_anomaly = 0.0;
 float anomaly_score = 0.0;
-float anomaly_threshold = 0.2; // Threshold for anomaly detection
+float anomaly_threshold = 0.05; // Threshold for anomaly detection
 int num_anomaly = 0;
 bool anomaly_detected = false;
 
@@ -267,6 +267,16 @@ void sendInferenceResults()
 	{
 		Blynk.virtualWrite(ANOMALY_PERCENTAGE_VPIN, average_anomaly * 100);
 		Blynk.virtualWrite(NUM_ANOMALY_VPIN, num_anomaly);
+
+		// For setting LED color on Blynk
+		if (average_anomaly >= anomaly_threshold)
+		{
+			Blynk.setProperty(PUMP1_STATUS_LED_VPIN, "color", BLYNK_RED);
+		}
+		else
+		{
+			Blynk.setProperty(PUMP1_STATUS_LED_VPIN, "color", BLYNK_GREEN);
+		}
 	}
 	else
 	{
@@ -793,7 +803,7 @@ void evaluateResults()
 		average_anomaly = (float)average_anomaly / (float)total_inference_count;
 		Serial.print("Average anomaly: ");
 		Serial.println(average_anomaly);
-		if (percentage_anomaly > 0.5)
+		if (average_anomaly > anomaly_threshold)
 		{
 			Serial.println("Anomaly detected!");
 			anomaly_detected = true;
@@ -1140,26 +1150,26 @@ void updatePreferences()
 	// Setting the mode for the next run
 	preferences.begin("mode", false); // Open preferences with write access
 	// !! ACTUAL METHOD TO CHANGE MODE !!
-	// if (anomaly_detected)
-	// {
-	// 	// Switch over to classifier model to check
-	// 	preferences.putInt("mode", 1);
-	// }
-	// else
-	// {
-	// 	// Switch back to autoencoder model
-	// 	preferences.putInt("mode", 0);
-	// }
-
-	// !! TOGGLING MODE FOR TESTING !!
-	if (mode == 0)
+	if (anomaly_detected)
 	{
+		// Switch over to classifier model to check
 		preferences.putInt("mode", 1);
 	}
 	else
 	{
+		// Switch back to autoencoder model
 		preferences.putInt("mode", 0);
 	}
+
+	// !! TOGGLING MODE FOR TESTING !!
+	// if (mode == 0)
+	// {
+	// 	preferences.putInt("mode", 1);
+	// }
+	// else
+	// {
+	// 	preferences.putInt("mode", 0);
+	// }
 	preferences.end();
 }
 
