@@ -271,11 +271,11 @@ void sendInferenceResults()
 		// For setting LED color on Blynk
 		if (average_anomaly >= anomaly_threshold)
 		{
-			Blynk.setProperty(PUMP1_STATUS_LED_VPIN, "color", BLYNK_RED);
+			Blynk.setProperty(PUMP2_STATUS_LED_VPIN, "color", BLYNK_RED);
 		}
 		else
 		{
-			Blynk.setProperty(PUMP1_STATUS_LED_VPIN, "color", BLYNK_GREEN);
+			Blynk.setProperty(PUMP2_STATUS_LED_VPIN, "color", BLYNK_GREEN);
 		}
 	}
 	else
