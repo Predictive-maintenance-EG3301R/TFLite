@@ -1098,6 +1098,7 @@ void wifiSetup()
 {
 	int numConnection = 0;
 	WiFi.setAutoReconnect(true);
+	WiFi.mode(WIFI_STA);
 	WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
 	Serial.printf("Connecting to %s\n", WIFI_SSID);
 	while (WiFi.status() != WL_CONNECTED)
