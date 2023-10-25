@@ -276,6 +276,7 @@ void sendInferenceResults()
 		else
 		{
 			Blynk.setProperty(PUMP2_STATUS_LED_VPIN, "color", BLYNK_GREEN);
+			Blynk.virtualWrite(PUMP2_ANOMALY_VPIN, "-");
 		}
 	}
 	else
@@ -361,14 +362,22 @@ void setup()
 {
 	Serial.begin(115200); // Start serial at 115200 baud
 
-	ledSetup();	 // Setup of LED to show program status
+	ledSetup(); // Setup of LED to show program status
+	delay(100);
+
 	wifiSetup(); // Connect to network
-	rtcSetup();	 // Setup of RTC to get local time
+	delay(100);
+
+	rtcSetup(); // Setup of RTC to get local time
+	delay(100);
 
 	setBlue(); // Set RGB to blue to indicate successful network setup
 
 	blynkSetup(); // Connect to Blynk
+	delay(100);
+
 	sendLatestTime(LATEST_CONNECT_TIME_VPIN);
+	delay(100);
 
 	if (isOTAAvail()) // OTA if new firmware is available
 	{
@@ -1099,6 +1108,7 @@ void wifiSetup()
 	int numConnection = 0;
 	WiFi.setAutoReconnect(true);
 	WiFi.mode(WIFI_STA);
+	delay(100);
 	WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
 	Serial.printf("Connecting to %s\n", WIFI_SSID);
 	while (WiFi.status() != WL_CONNECTED)
