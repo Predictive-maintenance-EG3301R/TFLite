@@ -167,6 +167,7 @@ void setBlue();
 void setPurple();
 void setOrange();
 void setYellow();
+void setLightBlue();
 void setWhite();
 void offLED();
 
@@ -360,136 +361,160 @@ void IRAM_ATTR onTimer() // To collect accelerometer data per 1ms
 
 void setup()
 {
-	Serial.begin(115200); // Start serial at 115200 baud
-
-	ledSetup(); // Setup of LED to show program status
-	delay(100);
-
-	wifiSetup(); // Connect to network
-	delay(100);
-
-	rtcSetup(); // Setup of RTC to get local time
-	delay(100);
-
-	setBlue(); // Set RGB to blue to indicate successful network setup
-
-	blynkSetup(); // Connect to Blynk
-	delay(100);
-
-	sendLatestTime(LATEST_CONNECT_TIME_VPIN);
-	delay(100);
-
-	if (isOTAAvail()) // OTA if new firmware is available
+	try
 	{
-		Serial.println("OTA is available");
-		setPurple(); // To indicate OTA is available
-		execOTA();
+
+		Serial.begin(115200); // Start serial at 115200 baud
+
+		ledSetup(); // Setup of LED to show program status
+		delay(100);
+
+		wifiSetup(); // Connect to network
+		delay(100);
+
+		rtcSetup(); // Setup of RTC to get local time
+		delay(100);
+
+		setBlue(); // Set RGB to blue to indicate successful network setup
+
+		blynkSetup(); // Connect to Blynk
+		delay(100);
+
+		sendLatestTime(LATEST_CONNECT_TIME_VPIN);
+		delay(100);
+
+		if (isOTAAvail()) // OTA if new firmware is available
+		{
+			Serial.println("OTA is available");
+			setPurple(); // To indicate OTA is available
+			execOTA();
+		}
+		else
+		{
+			Serial.println("OTA is not available");
+		}
+
+		sendFirmwareVersion();
+
+		// Sensors setup // !! UNCOMMENT WHEN SENSORS ARE CONNECTED !!
+		accelSetup();
+		// tempSetup();
+
+		loadPreferences(); // Load the preferences for the ML model
+
+		loadMLModel();
+
+		interruptSetup(); // Setup of interrupt to collect accelerometer data
 	}
-	else
+	catch (const std::exception &e)
 	{
-		Serial.println("OTA is not available");
+		Serial.println("Caught exception in setup: " + String(e.what()));
+		ESP.restart();
 	}
-
-	sendFirmwareVersion();
-
-	// Sensors setup // !! UNCOMMENT WHEN SENSORS ARE CONNECTED !!
-	accelSetup();
-	// tempSetup();
-
-	loadPreferences(); // Load the preferences for the ML model
-
-	loadMLModel();
-
-	interruptSetup(); // Setup of interrupt to collect accelerometer data
 }
 
 void loop()
 {
-	if (numSamples == NUM_PER_SAMPLE) // Running of inference once data collected
+	try
 	{
-		setWhite(); // Change LED to white to show that it is running inference
-
-		// Test the model with some dummy data
-		// Serial.println("Testing model with dummy data...");
-
-		// Normalizing the accelerometer data first
-		normalizeAccelData();
-
-		// Each sample of 1000ms can be split into 10 samples of 100ms for inference
-		int curr_set = 0;
-		while (curr_set < 10)
+		if (numSamples == NUM_PER_SAMPLE) // Running of inference once data collected
 		{
-			setModelInput(curr_set);
+			if (mode == 0) // For autoencoder model
+			{
+				setLightBlue();
+			}
+			else // For classification model
+			{
+				setWhite();
+			}
 
-			runModel();
+			// Test the model with some dummy data
+			// Serial.println("Testing model with dummy data...");
 
-			readModelOutput(curr_set);
+			// Normalizing the accelerometer data first
+			normalizeAccelData();
 
-			curr_set++;
-			total_inference_count++;
-			Serial.println("Current inference count: " + String(curr_set));
+			// Each sample of 1000ms can be split into 10 samples of 100ms for inference
+			int curr_set = 0;
+			while (curr_set < 10)
+			{
+				setModelInput(curr_set);
+
+				runModel();
+
+				readModelOutput(curr_set);
+
+				curr_set++;
+				total_inference_count++;
+				Serial.println("Current inference count: " + String(curr_set));
+				delay(10);
+			}
+
+			numSamples = 0; // Reset the number of samples taken
+			Serial.println("Total inference count: " + String(total_inference_count));
+			isAccTimerTriggered = false; // Reset the timer trigger
+			setBlue();					 // Set LED to blue to show inference done
+		}
+
+		if (isAccTimerTriggered && (numSamples < NUM_PER_SAMPLE)) // Collecting of data per 1ms
+		{
+			isAccTimerTriggered = false;
+
+			updateAccelData(numSamples);
+
+			// ********** Dummy data **********
+			// accelXVecVert[numSamples] = 0.0;
+			// accelXVecHori[numSamples] = 0.0;
+			// accelYVecVert[numSamples] = 0.0;
+			// accelYVecHori[numSamples] = 0.0;
+			// accelZVecVert[numSamples] = 0.0;
+			// accelZVecHori[numSamples] = 0.0;
+
+			numSamples++; // Increment the number of samples taken
+		}
+
+		if (total_inference_count >= NUM_INFERENCE_SAMPLES) // Processing of results after running inference
+		{
+			Serial.println("Processing results");
+			evaluateResults();
+			sendInferenceResults();
+			updatePreferences();
+			delay(3000); // Delay to allow user to see whether anomaly was detected from RGB LED
+
+			// !! UNCOMMENT WHEN SENSORS ARE CONNECTED !!
+			// float currACValue = getACCurrentValue();
+			// float ambientTemp = getAmbientTemp();
+			// float objectTemp = getObjectTemp();
+			// sendACReading(currACValue);
+			// sendTempReadings(ambientTemp, objectTemp);
+
+			if (sendToAWS) // If user wants to send data to AWS
+			{
+				Serial.println("Sending to AWS...");
+				publishToAWS();
+			}
+			else
+			{
+				Serial.println("Not sending to AWS");
+			}
+
+			// Update latest time on Blynk
+			updateRTCTime();
 			delay(10);
-		}
+			sendLatestTime(LATEST_UPDATE_TIME_VPIN);
 
-		numSamples = 0; // Reset the number of samples taken
-		Serial.println("Total inference count: " + String(total_inference_count));
-		isAccTimerTriggered = false; // Reset the timer trigger
-		setBlue();					 // Set LED to blue to show inference done
+			// Set to deep sleep to save power
+			Serial.println("Going into deep sleep...");
+			offLED();
+			esp_sleep_enable_timer_wakeup(deep_sleep_time);
+			delay(10);
+			esp_deep_sleep_start();
+		}
 	}
-
-	if (isAccTimerTriggered && (numSamples < NUM_PER_SAMPLE)) // Collecting of data per 1ms
+	catch (const std::exception &e)
 	{
-		isAccTimerTriggered = false;
-
-		updateAccelData(numSamples);
-
-		// ********** Dummy data **********
-		// accelXVecVert[numSamples] = 0.0;
-		// accelXVecHori[numSamples] = 0.0;
-		// accelYVecVert[numSamples] = 0.0;
-		// accelYVecHori[numSamples] = 0.0;
-		// accelZVecVert[numSamples] = 0.0;
-		// accelZVecHori[numSamples] = 0.0;
-
-		numSamples++; // Increment the number of samples taken
-	}
-
-	if (total_inference_count >= NUM_INFERENCE_SAMPLES) // Processing of results after running inference
-	{
-		Serial.println("Processing results");
-		evaluateResults();
-		sendInferenceResults();
-		updatePreferences();
-		delay(3000); // Delay to allow user to see whether anomaly was detected from RGB LED
-
-		// !! UNCOMMENT WHEN SENSORS ARE CONNECTED !!
-		// float currACValue = getACCurrentValue();
-		// float ambientTemp = getAmbientTemp();
-		// float objectTemp = getObjectTemp();
-		// sendACReading(currACValue);
-		// sendTempReadings(ambientTemp, objectTemp);
-
-		if (sendToAWS) // If user wants to send data to AWS
-		{
-			Serial.println("Sending to AWS...");
-			publishToAWS();
-		}
-		else
-		{
-			Serial.println("Not sending to AWS");
-		}
-
-		// Update latest time on Blynk
-		updateRTCTime();
-		delay(10);
-		sendLatestTime(LATEST_UPDATE_TIME_VPIN);
-
-		// Set to deep sleep to save power
-		Serial.println("Going into deep sleep...");
-		offLED();
-		esp_sleep_enable_timer_wakeup(deep_sleep_time);
-		delay(10);
-		esp_deep_sleep_start();
+		Serial.println("Caught exception in loop: " + String(e.what()));
+		ESP.restart();
 	}
 }
 
@@ -527,6 +552,11 @@ void setYellow()
 void setWhite()
 {
 	neopixelWrite(RGB_BUILTIN, RGB_BRIGHTNESS, RGB_BRIGHTNESS, RGB_BRIGHTNESS);
+}
+
+void setLightBlue()
+{
+	neopixelWrite(RGB_BUILTIN, 0, RGB_BRIGHTNESS, RGB_BRIGHTNESS);
 }
 
 void offLED()
