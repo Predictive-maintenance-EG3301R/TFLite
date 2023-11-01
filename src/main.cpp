@@ -99,8 +99,8 @@ SPARKFUN_LIS2DH12 accelHori;
 #define TEMP_SDA 7
 #define TEMP_SCL 6
 
-// TwoWire I2Ctwo = TwoWire(1);				// Set up the I2C bus for the temperature sensor
-// DFRobot_MLX90614_I2C sensor(0x5A, &I2Ctwo); // Instantiate the temperature sensor object
+TwoWire I2Ctwo = TwoWire(1);				// Set up the I2C bus for the temperature sensor
+DFRobot_MLX90614_I2C sensor(0x5A, &I2Ctwo); // Instantiate the temperature sensor object
 
 //***************** AC Current Sensor variables *****************
 #define ACPin 9			   // define the AC Current Sensor input analog pin
@@ -132,7 +132,7 @@ float max_output = 0.0;
 float percentage_anomaly = 0.0;
 float average_anomaly = 0.0;
 float anomaly_score = 0.0;
-float anomaly_threshold = 0.05; // Threshold for anomaly detection
+float anomaly_threshold = 0.10; // Threshold for anomaly detection
 int num_anomaly = 0;
 bool anomaly_detected = false;
 
@@ -277,29 +277,38 @@ void sendInferenceResults()
 		else
 		{
 			Blynk.setProperty(PUMP2_STATUS_LED_VPIN, "color", BLYNK_GREEN);
-			Blynk.virtualWrite(PUMP2_ANOMALY_VPIN, "-");
+			Blynk.virtualWrite(PUMP2_ANOMALY_VPIN, "Healthy");
 		}
 	}
 	else
 	{
 		Blynk.virtualWrite(LATEST_CAVITATION_COUNT_VPIN, curr_num_cavitation);
+		delay(10);
 		Blynk.virtualWrite(LATEST_HEALTHY_COUNT_VPIN, curr_num_healthy);
+		delay(10);
 		Blynk.virtualWrite(LATEST_LOOSE_COUNT_VPIN, curr_num_loose);
+		delay(10);
 		Blynk.virtualWrite(HEALTHY_COUNT_VPIN, total_num_healthy);
+		delay(10);
 		Blynk.virtualWrite(LOOSE_COUNT_VPIN, total_num_loose);
+		delay(10);
 		Blynk.virtualWrite(CAVITATION_COUNT_VPIN, total_num_cavitation);
+		delay(10);
 
 		if (curr_num_healthy >= curr_num_loose && curr_num_healthy >= curr_num_cavitation)
 		{
-			Blynk.virtualWrite(PUMP2_ANOMALY_VPIN, "-");
+			Blynk.virtualWrite(PUMP2_ANOMALY_VPIN, "Healthy");
+			delay(10);
 		}
 		else if (curr_num_loose >= curr_num_healthy && curr_num_loose >= curr_num_cavitation)
 		{
 			Blynk.virtualWrite(PUMP2_ANOMALY_VPIN, "Loose");
+			delay(10);
 		}
 		else
 		{
 			Blynk.virtualWrite(PUMP2_ANOMALY_VPIN, "Cavitation");
+			delay(10);
 		}
 	}
 }
@@ -322,7 +331,7 @@ void sendACReading(float currACValue)
 		ESP.restart();
 	}
 
-	Blynk.virtualWrite(AC_READING_VPIN, currACValue);
+	Blynk.virtualWrite(AC_READING_VPIN, (double)currACValue);
 }
 
 //***************** OTA Functions *****************
@@ -398,7 +407,7 @@ void setup()
 
 		// Sensors setup // !! UNCOMMENT WHEN SENSORS ARE CONNECTED !!
 		accelSetup();
-		// tempSetup();
+		tempSetup();
 
 		loadPreferences(); // Load the preferences for the ML model
 
@@ -482,11 +491,11 @@ void loop()
 			delay(3000); // Delay to allow user to see whether anomaly was detected from RGB LED
 
 			// !! UNCOMMENT WHEN SENSORS ARE CONNECTED !!
-			// float currACValue = getACCurrentValue();
-			// float ambientTemp = getAmbientTemp();
-			// float objectTemp = getObjectTemp();
-			// sendACReading(currACValue);
-			// sendTempReadings(ambientTemp, objectTemp);
+			float currACValue = getACCurrentValue();
+			float ambientTemp = getAmbientTemp();
+			float objectTemp = getObjectTemp();
+			sendACReading(currACValue);
+			sendTempReadings(ambientTemp, objectTemp);
 
 			if (sendToAWS) // If user wants to send data to AWS
 			{
@@ -667,33 +676,33 @@ void normalizeAccelData()
 };
 
 // **************** Temp sensor Utility Functions ****************
-// void tempSetup()
-// {
-// 	I2Ctwo.begin(TEMP_SDA, TEMP_SCL);
-// 	I2Ctwo.setClock(1000000);
-// 	delay(500);
-// 	// Init the temperature sensor
-// 	if (NO_ERR != sensor.begin())
-// 	{
-// 		Serial.println("Communication with temperature sensor failed, please check connection");
-// 		Blynk.virtualWrite(TEMP_CONNECTION_VPIN, 0);
-// 		delay(100);
-// 		ESP.restart();
-// 	}
+void tempSetup()
+{
+	I2Ctwo.begin(TEMP_SDA, TEMP_SCL);
+	I2Ctwo.setClock(1000000);
+	delay(500);
+	// Init the temperature sensor
+	if (NO_ERR != sensor.begin())
+	{
+		Serial.println("Communication with temperature sensor failed, please check connection");
+		Blynk.virtualWrite(TEMP_CONNECTION_VPIN, 0);
+		delay(100);
+		ESP.restart();
+	}
 
-// 	Blynk.virtualWrite(TEMP_CONNECTION_VPIN, 1); // Update temp sensor connection status on Blynk
-// 	Serial.println("Temperature sensor init successful!");
-// }
+	Blynk.virtualWrite(TEMP_CONNECTION_VPIN, 1); // Update temp sensor connection status on Blynk
+	Serial.println("Temperature sensor init successful!");
+}
 
-// float getAmbientTemp()
-// {
-// 	return sensor.getAmbientTempCelsius();
-// }
+float getAmbientTemp()
+{
+	return sensor.getAmbientTempCelsius();
+}
 
-// float getObjectTemp()
-// {
-// 	return sensor.getObjectTempCelsius();
-// }
+float getObjectTemp()
+{
+	return sensor.getObjectTempCelsius();
+}
 
 // **************** TFLite Utility Functions ****************
 void loadMLModel()
@@ -1089,15 +1098,15 @@ float getACCurrentValue()
 		peakVoltage += analogRead(ACPin); // read peak voltage
 		delay(1);
 	}
-	peakVoltage = peakVoltage / 20;
+	peakVoltage = peakVoltage / 20.0;
 	voltageVirtualValue = peakVoltage * 0.707; // change the peak voltage to the Virtual Value of voltage
 
 	/*The circuit is amplified by 2 times, so it is divided by 2.*/
-	voltageVirtualValue = (voltageVirtualValue / 1024 * VREF) / 2;
+	voltageVirtualValue = (voltageVirtualValue / 1024 * VREF) / 2.0;
 
 	ACCurrentValue = voltageVirtualValue * ACTectionRange;
 
-	return ACCurrentValue;
+	return analogRead(ACPin);
 }
 
 // **************** Generic Functions ****************
