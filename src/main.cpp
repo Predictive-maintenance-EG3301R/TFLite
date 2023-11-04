@@ -21,7 +21,7 @@
 using namespace std;
 
 //***************** Generic variables *****************
-unsigned long long deep_sleep_time = 1000000ULL * 10 * 1 * 1; // Time to sleep in microseconds (10seconds)
+unsigned long long deep_sleep_time = 1000000ULL * 60 * 60 * 1; // Time to sleep in microseconds (10seconds)
 int mode;													  // 0 for autoencoder, 1 for classifier
 
 Preferences preferences; // To store the model to be used
@@ -377,6 +377,7 @@ void setup()
 
 		ledSetup(); // Setup of LED to show program status
 		delay(100);
+		neopixelWrite(RGB_BUILTIN, 0, 0, 0);
 
 		wifiSetup(); // Connect to network
 		delay(100);
@@ -384,36 +385,36 @@ void setup()
 		rtcSetup(); // Setup of RTC to get local time
 		delay(100);
 
-		setBlue(); // Set RGB to blue to indicate successful network setup
+		// setBlue(); // Set RGB to blue to indicate successful network setup
 
 		blynkSetup(); // Connect to Blynk
 		delay(100);
 
-		sendLatestTime(LATEST_CONNECT_TIME_VPIN);
+		sendLatestTime(LATEST_UPDATE_TIME_VPIN);
 		delay(100);
 
-		if (isOTAAvail()) // OTA if new firmware is available
-		{
-			Serial.println("OTA is available");
-			setPurple(); // To indicate OTA is available
-			execOTA();
-		}
-		else
-		{
-			Serial.println("OTA is not available");
-		}
+		// if (isOTAAvail()) // OTA if new firmware is available
+		// {
+		// 	Serial.println("OTA is available");
+		// 	setPurple(); // To indicate OTA is available
+		// 	execOTA();
+		// }
+		// else
+		// {
+		// 	Serial.println("OTA is not available");
+		// }
 
-		sendFirmwareVersion();
+		// sendFirmwareVersion();
 
 		// Sensors setup // !! UNCOMMENT WHEN SENSORS ARE CONNECTED !!
-		accelSetup();
-		tempSetup();
+		// accelSetup();
+		// tempSetup();
 
-		loadPreferences(); // Load the preferences for the ML model
+		// loadPreferences(); // Load the preferences for the ML model
 
-		loadMLModel();
+		// loadMLModel();
 
-		interruptSetup(); // Setup of interrupt to collect accelerometer data
+		// interruptSetup(); // Setup of interrupt to collect accelerometer data
 	}
 	catch (const std::exception &e)
 	{
@@ -424,107 +425,25 @@ void setup()
 
 void loop()
 {
-	try
-	{
-		if (numSamples == NUM_PER_SAMPLE) // Running of inference once data collected
-		{
-			if (mode == 0) // For autoencoder model
-			{
-				setLightBlue();
-			}
-			else // For classification model
-			{
-				setWhite();
-			}
+	// for (int i = 0; i < 10; i++)
+	// {
+	// 	double AC_current = 3.104 + (double)esp_random() / (UINT32_MAX) * (3.296 - 3.104); // RNG for AC current
+	// 	Serial.println(AC_current);
 
-			// Test the model with some dummy data
-			// Serial.println("Testing model with dummy data...");
+	// 	double object_temp = 44.0515 + (double)esp_random() / (UINT32_MAX) * (48.6885 - 44.0515); // RNG for object temp
+	// 	Serial.println(object_temp);
 
-			// Normalizing the accelerometer data first
-			normalizeAccelData();
+	// 	double ambient_temp = 35.0455 + (double)esp_random() / (UINT32_MAX) * (38.7345 - 35.0455); // RNG for ambient temp
+	// 	Serial.println(ambient_temp);
+	// }
 
-			// Each sample of 1000ms can be split into 10 samples of 100ms for inference
-			int curr_set = 0;
-			while (curr_set < 10)
-			{
-				setModelInput(curr_set);
+	double pump1_anomaly_percent = 0.3 + (double)esp_random() / (UINT32_MAX) * (2 - 0.3); // RNG for pump 1 anomaly percent
+	Serial.println(pump1_anomaly_percent);
+	Blynk.virtualWrite(PRESENT_PUMP1_PERCENT_VPIN, pump1_anomaly_percent);
 
-				runModel();
-
-				readModelOutput(curr_set);
-
-				curr_set++;
-				total_inference_count++;
-				Serial.println("Current inference count: " + String(curr_set));
-				delay(10);
-			}
-
-			numSamples = 0; // Reset the number of samples taken
-			Serial.println("Total inference count: " + String(total_inference_count));
-			isAccTimerTriggered = false; // Reset the timer trigger
-			setBlue();					 // Set LED to blue to show inference done
-		}
-
-		if (isAccTimerTriggered && (numSamples < NUM_PER_SAMPLE)) // Collecting of data per 1ms
-		{
-			isAccTimerTriggered = false;
-
-			updateAccelData(numSamples);
-
-			// ********** Dummy data **********
-			// accelXVecVert[numSamples] = 0.0;
-			// accelXVecHori[numSamples] = 0.0;
-			// accelYVecVert[numSamples] = 0.0;
-			// accelYVecHori[numSamples] = 0.0;
-			// accelZVecVert[numSamples] = 0.0;
-			// accelZVecHori[numSamples] = 0.0;
-
-			numSamples++; // Increment the number of samples taken
-		}
-
-		if (total_inference_count >= NUM_INFERENCE_SAMPLES) // Processing of results after running inference
-		{
-			Serial.println("Processing results");
-			evaluateResults();
-			sendInferenceResults();
-			updatePreferences();
-			delay(3000); // Delay to allow user to see whether anomaly was detected from RGB LED
-
-			// !! UNCOMMENT WHEN SENSORS ARE CONNECTED !!
-			float currACValue = getACCurrentValue();
-			float ambientTemp = getAmbientTemp();
-			float objectTemp = getObjectTemp();
-			sendACReading(currACValue);
-			sendTempReadings(ambientTemp, objectTemp);
-
-			if (sendToAWS) // If user wants to send data to AWS
-			{
-				Serial.println("Sending to AWS...");
-				publishToAWS();
-			}
-			else
-			{
-				Serial.println("Not sending to AWS");
-			}
-
-			// Update latest time on Blynk
-			updateRTCTime();
-			delay(10);
-			sendLatestTime(LATEST_UPDATE_TIME_VPIN);
-
-			// Set to deep sleep to save power
-			Serial.println("Going into deep sleep...");
-			offLED();
-			esp_sleep_enable_timer_wakeup(deep_sleep_time);
-			delay(10);
-			esp_deep_sleep_start();
-		}
-	}
-	catch (const std::exception &e)
-	{
-		Serial.println("Caught exception in loop: " + String(e.what()));
-		ESP.restart();
-	}
+	esp_sleep_enable_timer_wakeup(deep_sleep_time);
+	delay(10);
+	esp_deep_sleep_start();
 }
 
 // **************** RGB Utility Functions ****************
