@@ -407,7 +407,7 @@ void setup()
 
 		// Sensors setup // !! UNCOMMENT WHEN SENSORS ARE CONNECTED !!
 		accelSetup();
-		tempSetup();
+		// tempSetup();
 
 		loadPreferences(); // Load the preferences for the ML model
 
@@ -491,9 +491,16 @@ void loop()
 			delay(3000); // Delay to allow user to see whether anomaly was detected from RGB LED
 
 			// !! UNCOMMENT WHEN SENSORS ARE CONNECTED !!
-			float currACValue = getACCurrentValue();
-			float ambientTemp = getAmbientTemp();
-			float objectTemp = getObjectTemp();
+			// float currACValue = getACCurrentValue();
+			// float ambientTemp = getAmbientTemp();
+			// float objectTemp = getObjectTemp();
+
+			// !! FAKE RANDOMIZED DATA !!
+			float currACValue = 3.104 + (double)esp_random() / (UINT32_MAX) * (3.296 - 3.104); // RNG for AC current
+			float ambientTemp = 35.0455 + (double)esp_random() / (UINT32_MAX) * (38.7345 - 35.0455); // RNG for ambient temp
+			float objectTemp = 44.0515 + (double)esp_random() / (UINT32_MAX) * (48.6885 - 44.0515); // RNG for object temp
+
+			// Sending of current and temp values to Blynk
 			sendACReading(currACValue);
 			sendTempReadings(ambientTemp, objectTemp);
 
