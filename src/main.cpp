@@ -366,6 +366,7 @@ void readModelOutput(int curr_set);
 void IRAM_ATTR onTimer() // To collect accelerometer data per 1ms
 {
 	isAccTimerTriggered = true; // Set flag to read accelerometer data
+	Blynk.run();				// To keep Blynk connection alive
 }
 
 void setup()
@@ -387,7 +388,7 @@ void setup()
 		setBlue(); // Set RGB to blue to indicate successful network setup
 
 		blynkSetup(); // Connect to Blynk
-		delay(100);
+		delay(1000);
 
 		sendLatestTime(LATEST_CONNECT_TIME_VPIN);
 		delay(100);
@@ -414,6 +415,8 @@ void setup()
 		loadMLModel();
 
 		interruptSetup(); // Setup of interrupt to collect accelerometer data
+
+		delay(1000);
 	}
 	catch (const std::exception &e)
 	{
