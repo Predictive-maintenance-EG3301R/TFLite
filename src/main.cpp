@@ -21,7 +21,7 @@
 using namespace std;
 
 //***************** Generic variables *****************
-unsigned long long deep_sleep_time = 1000000ULL * 10 * 1 * 1; // Time to sleep in microseconds (10seconds)
+unsigned long long deep_sleep_time = 1000000ULL * 3 * 1 * 1; // Time to sleep in microseconds (10seconds)
 int mode;													  // 0 for autoencoder, 1 for classifier
 
 Preferences preferences; // To store the model to be used
@@ -525,6 +525,7 @@ void loop()
 			// Set to deep sleep to save power
 			Serial.println("Going into deep sleep...");
 			offLED();
+			delay(1000);
 			esp_sleep_enable_timer_wakeup(deep_sleep_time);
 			delay(10);
 			esp_deep_sleep_start();
