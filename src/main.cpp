@@ -21,8 +21,8 @@
 using namespace std;
 
 //***************** Generic variables *****************
-unsigned long long deep_sleep_time = 1000000ULL * 60 * 60 * 1; // Time to sleep in microseconds (10seconds)
-int mode;													  // 0 for autoencoder, 1 for classifier
+unsigned long long deep_sleep_time = 1000000ULL * 60 * 5 * 1; // Time to sleep in microseconds (10seconds)
+int mode;													   // 0 for autoencoder, 1 for classifier
 
 Preferences preferences; // To store the model to be used
 
@@ -415,6 +415,7 @@ void setup()
 		// loadMLModel();
 
 		// interruptSetup(); // Setup of interrupt to collect accelerometer data
+		delay(1000);
 	}
 	catch (const std::exception &e)
 	{
@@ -425,6 +426,7 @@ void setup()
 
 void loop()
 {
+	// Blynk.run();
 	// for (int i = 0; i < 10; i++)
 	// {
 	// 	double AC_current = 3.104 + (double)esp_random() / (UINT32_MAX) * (3.296 - 3.104); // RNG for AC current
@@ -439,8 +441,14 @@ void loop()
 
 	double pump1_anomaly_percent = 0.3 + (double)esp_random() / (UINT32_MAX) * (2 - 0.3); // RNG for pump 1 anomaly percent
 	Serial.println(pump1_anomaly_percent);
+	if (!checkBlynkConnection())
+	{
+		ESP.restart();
+	}
+
 	Blynk.virtualWrite(PRESENT_PUMP1_PERCENT_VPIN, pump1_anomaly_percent);
 
+	Serial.println("Going to sleep now...");
 	esp_sleep_enable_timer_wakeup(deep_sleep_time);
 	delay(10);
 	esp_deep_sleep_start();
