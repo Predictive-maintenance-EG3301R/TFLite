@@ -21,7 +21,7 @@
 using namespace std;
 
 //***************** Generic variables *****************
-unsigned long long deep_sleep_time = 1000000ULL * 60 * 5 * 1; // Time to sleep in microseconds (10seconds)
+unsigned long long deep_sleep_time = 1000000ULL * 60 * 1 * 1; // Time to sleep in microseconds (10seconds)
 int mode;													   // 0 for autoencoder, 1 for classifier
 
 Preferences preferences; // To store the model to be used
@@ -426,7 +426,7 @@ void setup()
 
 void loop()
 {
-	// Blynk.run();
+	Blynk.run();
 	// for (int i = 0; i < 10; i++)
 	// {
 	// 	double AC_current = 3.104 + (double)esp_random() / (UINT32_MAX) * (3.296 - 3.104); // RNG for AC current
@@ -447,6 +447,7 @@ void loop()
 	}
 
 	Blynk.virtualWrite(PRESENT_PUMP1_PERCENT_VPIN, pump1_anomaly_percent);
+	delay(1000);
 
 	Serial.println("Going to sleep now...");
 	esp_sleep_enable_timer_wakeup(deep_sleep_time);
