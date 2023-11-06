@@ -1116,7 +1116,7 @@ void rtcSetup()
 
 void blynkSetup()
 {
-	Blynk.begin(BLYNK_AUTH_TOKEN, WIFI_SSID, WIFI_PASSWORD, "blynk.cloud", 8080);
+	Blynk.begin(BLYNK_AUTH_TOKEN, WIFI_SSID, WIFI_PASSWORD);
 	delay(500);
 	if (Blynk.connected())
 	{
