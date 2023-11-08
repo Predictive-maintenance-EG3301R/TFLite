@@ -22,7 +22,7 @@ using namespace std;
 
 //***************** Generic variables *****************
 unsigned long long deep_sleep_time = 1000000ULL * 3 * 1 * 1; // Time to sleep in microseconds (10seconds)
-int mode;													  // 0 for autoencoder, 1 for classifier
+int mode;													 // 0 for autoencoder, 1 for classifier
 
 Preferences preferences; // To store the model to be used
 
@@ -96,16 +96,21 @@ SPARKFUN_LIS2DH12 accelVert;
 SPARKFUN_LIS2DH12 accelHori;
 
 //****************** Temperature variables ******************
-#define TEMP_SDA 7
-#define TEMP_SCL 6
+// #define TEMP_SDA 7
+// #define TEMP_SCL 6
 
-TwoWire I2Ctwo = TwoWire(1);				// Set up the I2C bus for the temperature sensor
-DFRobot_MLX90614_I2C sensor(0x5A, &I2Ctwo); // Instantiate the temperature sensor object
+// TwoWire I2Ctwo = TwoWire(1);				// Set up the I2C bus for the temperature sensor
+// DFRobot_MLX90614_I2C sensor(0x5A, &I2Ctwo); // Instantiate the temperature sensor object
+
+float ambientTemp = 0.0;
+float objectTemp = 0.0;
 
 //***************** AC Current Sensor variables *****************
-#define ACPin 9			   // define the AC Current Sensor input analog pin
-#define ACTectionRange 20; // set Non-invasive AC Current Sensor tection range (5A,10A,20A)
-#define VREF 3.3
+// #define ACPin 9			   // define the AC Current Sensor input analog pin
+// #define ACTectionRange 20; // set Non-invasive AC Current Sensor tection range (5A,10A,20A)
+// #define VREF 3.3
+
+float currACValue = 0.0;
 
 // **************** TF Lite variables ****************
 // Details for model to be tested
@@ -270,13 +275,8 @@ void sendInferenceResults()
 		Blynk.virtualWrite(NUM_ANOMALY_VPIN, num_anomaly);
 
 		// For setting LED color on Blynk
-		if (average_anomaly >= anomaly_threshold)
+		if (average_anomaly <= anomaly_threshold)
 		{
-			Blynk.setProperty(PUMP2_STATUS_LED_VPIN, "color", BLYNK_RED);
-		}
-		else
-		{
-			Blynk.setProperty(PUMP2_STATUS_LED_VPIN, "color", BLYNK_GREEN);
 			Blynk.virtualWrite(PUMP2_ANOMALY_VPIN, "Healthy");
 		}
 	}
@@ -313,7 +313,7 @@ void sendInferenceResults()
 	}
 }
 
-void sendTempReadings(float ambientTemp, float objectTemp)
+void sendTempReadings()
 {
 	if (!checkBlynkConnection())
 	{
@@ -324,14 +324,14 @@ void sendTempReadings(float ambientTemp, float objectTemp)
 	Blynk.virtualWrite(TEMP_OBJECT_VPIN, objectTemp);
 }
 
-void sendACReading(float currACValue)
+void sendACReading()
 {
 	if (!checkBlynkConnection())
 	{
 		ESP.restart();
 	}
 
-	Blynk.virtualWrite(AC_READING_VPIN, (double)currACValue);
+	Blynk.virtualWrite(AC_READING_VPIN, currACValue);
 }
 
 //***************** OTA Functions *****************
@@ -366,175 +366,158 @@ void readModelOutput(int curr_set);
 void IRAM_ATTR onTimer() // To collect accelerometer data per 1ms
 {
 	isAccTimerTriggered = true; // Set flag to read accelerometer data
-	Blynk.run();				// To keep Blynk connection alive
 }
 
 void setup()
 {
-	try
+	Serial.begin(115200); // Start serial at 115200 baud
+
+	ledSetup(); // Setup of LED to show program status
+	delay(100);
+
+	wifiSetup(); // Connect to network
+	delay(100);
+
+	rtcSetup(); // Setup of RTC to get local time
+	delay(100);
+
+	setBlue(); // Set RGB to blue to indicate successful network setup
+
+	blynkSetup(); // Connect to Blynk
+	delay(100);
+
+	sendLatestTime(LATEST_CONNECT_TIME_VPIN);
+	delay(100);
+
+	if (isOTAAvail()) // OTA if new firmware is available
 	{
-
-		Serial.begin(115200); // Start serial at 115200 baud
-
-		ledSetup(); // Setup of LED to show program status
-		delay(100);
-
-		wifiSetup(); // Connect to network
-		delay(100);
-
-		rtcSetup(); // Setup of RTC to get local time
-		delay(100);
-
-		setBlue(); // Set RGB to blue to indicate successful network setup
-
-		blynkSetup(); // Connect to Blynk
-		delay(1000);
-
-		sendLatestTime(LATEST_CONNECT_TIME_VPIN);
-		delay(100);
-
-		if (isOTAAvail()) // OTA if new firmware is available
-		{
-			Serial.println("OTA is available");
-			setPurple(); // To indicate OTA is available
-			execOTA();
-		}
-		else
-		{
-			Serial.println("OTA is not available");
-		}
-
-		sendFirmwareVersion();
-
-		// Sensors setup // !! UNCOMMENT WHEN SENSORS ARE CONNECTED !!
-		accelSetup();
-		// tempSetup();
-
-		loadPreferences(); // Load the preferences for the ML model
-
-		loadMLModel();
-
-		interruptSetup(); // Setup of interrupt to collect accelerometer data
-
-		delay(1000);
+		Serial.println("OTA is available");
+		setPurple(); // To indicate OTA is available
+		execOTA();
 	}
-	catch (const std::exception &e)
+	else
 	{
-		Serial.println("Caught exception in setup: " + String(e.what()));
-		ESP.restart();
+		Serial.println("OTA is not available");
 	}
+
+	sendFirmwareVersion();
+
+	// Sensors setup // !! UNCOMMENT WHEN SENSORS ARE CONNECTED !!
+	accelSetup();
+	// tempSetup();
+
+	loadPreferences(); // Load the preferences for the ML model
+
+	loadMLModel();
+
+	interruptSetup(); // Setup of interrupt to collect accelerometer data
+
+	delay(100);
 }
 
 void loop()
 {
-	try
+	Blynk.run();					  // To keep Blynk connection alive
+	if (numSamples == NUM_PER_SAMPLE) // Running of inference once data collected
 	{
-		if (numSamples == NUM_PER_SAMPLE) // Running of inference once data collected
+		if (mode == 0) // For autoencoder model
 		{
-			if (mode == 0) // For autoencoder model
-			{
-				setLightBlue();
-			}
-			else // For classification model
-			{
-				setWhite();
-			}
-
-			// Test the model with some dummy data
-			// Serial.println("Testing model with dummy data...");
-
-			// Normalizing the accelerometer data first
-			normalizeAccelData();
-
-			// Each sample of 1000ms can be split into 10 samples of 100ms for inference
-			int curr_set = 0;
-			while (curr_set < 10)
-			{
-				setModelInput(curr_set);
-
-				runModel();
-
-				readModelOutput(curr_set);
-
-				curr_set++;
-				total_inference_count++;
-				Serial.println("Current inference count: " + String(curr_set));
-				delay(10);
-			}
-
-			numSamples = 0; // Reset the number of samples taken
-			Serial.println("Total inference count: " + String(total_inference_count));
-			isAccTimerTriggered = false; // Reset the timer trigger
-			setBlue();					 // Set LED to blue to show inference done
+			setLightBlue();
+		}
+		else // For classification model
+		{
+			setWhite();
 		}
 
-		if (isAccTimerTriggered && (numSamples < NUM_PER_SAMPLE)) // Collecting of data per 1ms
+		// Test the model with some dummy data
+		// Serial.println("Testing model with dummy data...");
+
+		// Normalizing the accelerometer data first
+		normalizeAccelData();
+
+		// Each sample of 1000ms can be split into 10 samples of 100ms for inference
+		int curr_set = 0;
+		while (curr_set < 10)
 		{
-			isAccTimerTriggered = false;
+			Blynk.run(); // To keep Blynk connection alive
 
-			updateAccelData(numSamples);
+			setModelInput(curr_set);
 
-			// ********** Dummy data **********
-			// accelXVecVert[numSamples] = 0.0;
-			// accelXVecHori[numSamples] = 0.0;
-			// accelYVecVert[numSamples] = 0.0;
-			// accelYVecHori[numSamples] = 0.0;
-			// accelZVecVert[numSamples] = 0.0;
-			// accelZVecHori[numSamples] = 0.0;
+			runModel();
 
-			numSamples++; // Increment the number of samples taken
-		}
+			readModelOutput(curr_set);
 
-		if (total_inference_count >= NUM_INFERENCE_SAMPLES) // Processing of results after running inference
-		{
-			Serial.println("Processing results");
-			evaluateResults();
-			sendInferenceResults();
-			updatePreferences();
-			delay(3000); // Delay to allow user to see whether anomaly was detected from RGB LED
-
-			// !! UNCOMMENT WHEN SENSORS ARE CONNECTED !!
-			// float currACValue = getACCurrentValue();
-			// float ambientTemp = getAmbientTemp();
-			// float objectTemp = getObjectTemp();
-
-			// !! FAKE RANDOMIZED DATA !!
-			float currACValue = 3.104 + (double)esp_random() / (UINT32_MAX) * (3.296 - 3.104); // RNG for AC current
-			float ambientTemp = 35.0455 + (double)esp_random() / (UINT32_MAX) * (38.7345 - 35.0455); // RNG for ambient temp
-			float objectTemp = 44.0515 + (double)esp_random() / (UINT32_MAX) * (48.6885 - 44.0515); // RNG for object temp
-
-			// Sending of current and temp values to Blynk
-			sendACReading(currACValue);
-			sendTempReadings(ambientTemp, objectTemp);
-
-			if (sendToAWS) // If user wants to send data to AWS
-			{
-				Serial.println("Sending to AWS...");
-				publishToAWS();
-			}
-			else
-			{
-				Serial.println("Not sending to AWS");
-			}
-
-			// Update latest time on Blynk
-			updateRTCTime();
+			curr_set++;
+			total_inference_count++;
+			Serial.println("Current inference count: " + String(curr_set));
 			delay(10);
-			sendLatestTime(LATEST_UPDATE_TIME_VPIN);
-
-			// Set to deep sleep to save power
-			Serial.println("Going into deep sleep...");
-			offLED();
-			delay(1000);
-			esp_sleep_enable_timer_wakeup(deep_sleep_time);
-			delay(10);
-			esp_deep_sleep_start();
 		}
+
+		numSamples = 0; // Reset the number of samples taken
+		Serial.println("Total inference count: " + String(total_inference_count));
+		isAccTimerTriggered = false; // Reset the timer trigger
+		setBlue();					 // Set LED to blue to show inference done
 	}
-	catch (const std::exception &e)
+
+	if (isAccTimerTriggered && (numSamples < NUM_PER_SAMPLE)) // Collecting of data per 1ms
 	{
-		Serial.println("Caught exception in loop: " + String(e.what()));
-		ESP.restart();
+		isAccTimerTriggered = false;
+
+		updateAccelData(numSamples);
+
+		// ********** Dummy data **********
+		// accelXVecVert[numSamples] = 0.0;
+		// accelXVecHori[numSamples] = 0.0;
+		// accelYVecVert[numSamples] = 0.0;
+		// accelYVecHori[numSamples] = 0.0;
+		// accelZVecVert[numSamples] = 0.0;
+		// accelZVecHori[numSamples] = 0.0;
+
+		numSamples++; // Increment the number of samples taken
+	}
+
+	if (total_inference_count >= NUM_INFERENCE_SAMPLES) // Processing of results after running inference
+	{
+		Serial.println("Processing results");
+		evaluateResults();
+		sendInferenceResults();
+		updatePreferences();
+
+		// Update latest time on Blynk
+		updateRTCTime();
+		delay(10);
+		sendLatestTime(LATEST_UPDATE_TIME_VPIN);
+
+		// !! UNCOMMENT WHEN SENSORS ARE CONNECTED !!
+		// float currACValue = getACCurrentValue();
+		// float ambientTemp = getAmbientTemp();
+		// float objectTemp = getObjectTemp();
+
+		// // !! FAKE RANDOMIZED DATA !!
+		currACValue = 3.104 + (double)esp_random() / (UINT32_MAX) * (3.296 - 3.104);		 // RNG for AC current
+		ambientTemp = 35.0455 + (double)esp_random() / (UINT32_MAX) * (38.7345 - 35.0455); // RNG for ambient temp
+		objectTemp = 44.0515 + (double)esp_random() / (UINT32_MAX) * (48.6885 - 44.0515);	 // RNG for object temp
+
+		// Sending of current and temp values to Blynk
+		sendACReading();
+		sendTempReadings();
+
+		if (sendToAWS) // If user wants to send data to AWS
+		{
+			Serial.println("Sending to AWS...");
+			publishToAWS();
+		}
+		else
+		{
+			Serial.println("Not sending to AWS");
+		}
+
+		// Set to deep sleep to save power
+		Serial.println("Going into deep sleep...");
+		esp_sleep_enable_timer_wakeup(deep_sleep_time);
+		offLED();
+		delay(1000);
+		esp_deep_sleep_start();
 	}
 }
 
@@ -687,33 +670,33 @@ void normalizeAccelData()
 };
 
 // **************** Temp sensor Utility Functions ****************
-void tempSetup()
-{
-	I2Ctwo.begin(TEMP_SDA, TEMP_SCL);
-	I2Ctwo.setClock(1000000);
-	delay(500);
-	// Init the temperature sensor
-	if (NO_ERR != sensor.begin())
-	{
-		Serial.println("Communication with temperature sensor failed, please check connection");
-		Blynk.virtualWrite(TEMP_CONNECTION_VPIN, 0);
-		delay(100);
-		ESP.restart();
-	}
+// void tempSetup()
+// {
+// 	I2Ctwo.begin(TEMP_SDA, TEMP_SCL);
+// 	I2Ctwo.setClock(1000000);
+// 	delay(500);
+// 	// Init the temperature sensor
+// 	if (NO_ERR != sensor.begin())
+// 	{
+// 		Serial.println("Communication with temperature sensor failed, please check connection");
+// 		Blynk.virtualWrite(TEMP_CONNECTION_VPIN, 0);
+// 		delay(100);
+// 		ESP.restart();
+// 	}
 
-	Blynk.virtualWrite(TEMP_CONNECTION_VPIN, 1); // Update temp sensor connection status on Blynk
-	Serial.println("Temperature sensor init successful!");
-}
+// 	Blynk.virtualWrite(TEMP_CONNECTION_VPIN, 1); // Update temp sensor connection status on Blynk
+// 	Serial.println("Temperature sensor init successful!");
+// }
 
-float getAmbientTemp()
-{
-	return sensor.getAmbientTempCelsius();
-}
+// float getAmbientTemp()
+// {
+// 	return sensor.getAmbientTempCelsius();
+// }
 
-float getObjectTemp()
-{
-	return sensor.getObjectTempCelsius();
-}
+// float getObjectTemp()
+// {
+// 	return sensor.getObjectTempCelsius();
+// }
 
 // **************** TFLite Utility Functions ****************
 void loadMLModel()
@@ -1099,26 +1082,26 @@ void publishToAWS()
 }
 
 // **************** AC Current Functions ****************
-float getACCurrentValue()
-{
-	float ACCurrentValue = 0;
-	float peakVoltage = 0;
-	float voltageVirtualValue = 0; // Vrms
-	for (int i = 0; i < 20; i++)
-	{
-		peakVoltage += analogRead(ACPin); // read peak voltage
-		delay(1);
-	}
-	peakVoltage = peakVoltage / 20.0;
-	voltageVirtualValue = peakVoltage * 0.707; // change the peak voltage to the Virtual Value of voltage
+// float getACCurrentValue()
+// {
+// 	float ACCurrentValue = 0;
+// 	float peakVoltage = 0;
+// 	float voltageVirtualValue = 0; // Vrms
+// 	for (int i = 0; i < 20; i++)
+// 	{
+// 		peakVoltage += analogRead(ACPin); // read peak voltage
+// 		delay(1);
+// 	}
+// 	peakVoltage = peakVoltage / 20.0;
+// 	voltageVirtualValue = peakVoltage * 0.707; // change the peak voltage to the Virtual Value of voltage
 
-	/*The circuit is amplified by 2 times, so it is divided by 2.*/
-	voltageVirtualValue = (voltageVirtualValue / 1024 * VREF) / 2.0;
+// 	/*The circuit is amplified by 2 times, so it is divided by 2.*/
+// 	voltageVirtualValue = (voltageVirtualValue / 1024 * VREF) / 2.0;
 
-	ACCurrentValue = voltageVirtualValue * ACTectionRange;
+// 	ACCurrentValue = voltageVirtualValue * ACTectionRange;
 
-	return analogRead(ACPin);
-}
+// 	return analogRead(ACPin);
+// }
 
 // **************** Generic Functions ****************
 void updateRTCTime()
