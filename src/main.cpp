@@ -417,7 +417,7 @@ void setup()
 
 void loop()
 {
-	Blynk.run();					  // To keep Blynk connection alive
+	Blynk.run();
 	if (numSamples == NUM_PER_SAMPLE) // Running of inference once data collected
 	{
 		if (mode == 0) // For autoencoder model
@@ -439,7 +439,7 @@ void loop()
 		int curr_set = 0;
 		while (curr_set < 10)
 		{
-			Blynk.run(); // To keep Blynk connection alive
+			Blynk.run();
 
 			setModelInput(curr_set);
 
@@ -494,9 +494,9 @@ void loop()
 		// float objectTemp = getObjectTemp();
 
 		// // !! FAKE RANDOMIZED DATA !!
-		currACValue = 3.104 + (double)esp_random() / (UINT32_MAX) * (3.296 - 3.104);		 // RNG for AC current
+		currACValue = 3.104 + (double)esp_random() / (UINT32_MAX) * (3.296 - 3.104);	   // RNG for AC current
 		ambientTemp = 35.0455 + (double)esp_random() / (UINT32_MAX) * (38.7345 - 35.0455); // RNG for ambient temp
-		objectTemp = 44.0515 + (double)esp_random() / (UINT32_MAX) * (48.6885 - 44.0515);	 // RNG for object temp
+		objectTemp = 44.0515 + (double)esp_random() / (UINT32_MAX) * (48.6885 - 44.0515);  // RNG for object temp
 
 		// Serial.println("Preparing to send temp and current data to Blynk...");
 		// Sending of current and temp values to Blynk
