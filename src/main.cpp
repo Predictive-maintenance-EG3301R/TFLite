@@ -498,9 +498,11 @@ void loop()
 		ambientTemp = 35.0455 + (double)esp_random() / (UINT32_MAX) * (38.7345 - 35.0455); // RNG for ambient temp
 		objectTemp = 44.0515 + (double)esp_random() / (UINT32_MAX) * (48.6885 - 44.0515);	 // RNG for object temp
 
+		// Serial.println("Preparing to send temp and current data to Blynk...");
 		// Sending of current and temp values to Blynk
 		sendACReading();
 		sendTempReadings();
+		// Serial.println("Done sending temp and current data to Blynk");
 
 		if (sendToAWS) // If user wants to send data to AWS
 		{
@@ -515,8 +517,8 @@ void loop()
 		// Set to deep sleep to save power
 		Serial.println("Going into deep sleep...");
 		esp_sleep_enable_timer_wakeup(deep_sleep_time);
+		delay(3000);
 		offLED();
-		delay(1000);
 		esp_deep_sleep_start();
 	}
 }
